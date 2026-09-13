@@ -1,0 +1,94 @@
+# teptris — Ultra-fast TOML 1.0 parser and emitter in C
+# The TOML sibling of libleptris (XML) and libyeptris (YAML+JSON). Pure C
+# library with CLI, tests and bindings, zero required runtime deps.
+cmake_minimum_required(VERSION 3.20)
+
+project(teptris
+    VERSION 0.1.0
+    DESCRIPTION "Ultra-fast TOML 1.0 parser and emitter in C"
+    LANGUAGES C CXX
+)
+
+# C11 (not C99): _Static_assert is not a keyword in MSVC's C99 mode; C11
+# makes it standard (VS2019 16.8+). Same rationale as libleptris/libyeptris.
+set(CMAKE_C_STANDARD 11)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_EXTENSIONS OFF)
+
+# C++11 standard for tests and benchmarks.
+set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# ---------------------------------------------------------------- options --
+option(BUILD_TESTING "Build tests" ON)
+option(TEPTRIS_BUILD_CLI "Build the teptris CLI tool" ON)
+option(TEPTRIS_BUILD_STATIC "Build the static library" ON)
+option(TEPTRIS_BUILD_SHARED "Build the shared library" OFF)
+option(TEPTRIS_BUILD_BENCHMARKS "Build performance benchmarks (TODO.impl/09)" OFF)
+option(TEPTRIS_ENABLE_ASAN "Enable AddressSanitizer" OFF)
+option(TEPTRIS_ENABLE_TSAN "Enable ThreadSanitizer (requires all-TSAN build)" OFF)
+option(TEPTRIS_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
+option(TEPTRIS_ENABLE_FUZZING "Build libFuzzer harnesses (TODO.impl/07; requires clang)" OFF)
+option(TEPTRIS_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" OFF)
+
+# LTO: ON for Release/RelWithDebInfo by default (libleptris convention).
+if(NOT DEFINED TEPTRIS_ENABLE_LTO)
+    if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+        set(TEPTRIS_ENABLE_LTO_DEFAULT ON)
+    else()
+        set(TEPTRIS_ENABLE_LTO_DEFAULT OFF)
+    endif()
+else()
+    set(TEPTRIS_ENABLE_LTO_DEFAULT ${TEPTRIS_ENABLE_LTO})
+endif()
+option(TEPTRIS_ENABLE_LTO "Enable link-time optimization (default ON for Release)" ${TEPTRIS_ENABLE_LTO_DEFAULT})
+
+# ------------------------------------------------------------- sanitizers --
+if(TEPTRIS_ENABLE_ASAN AND TEPTRIS_ENABLE_TSAN)
+    message(FATAL_ERROR "ASAN and TSAN are mutually exclusive")
+endif()
+
+if(TEPTRIS_ENABLE_ASAN)
+    add_compile_options(-fsanitize=address -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=address)
+    message(STATUS "AddressSanitizer: ENABLED")
+endif()
+
+if(TEPTRIS_ENABLE_TSAN)
+    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=thread)
+    message(STATUS "ThreadSanitizer: ENABLED")
+endif()
+
+if(TEPTRIS_ENABLE_UBSAN)
+    add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer -g)
+    add_link_options(-fsanitize=undefined)
+    message(STATUS "UndefinedBehaviorSanitizer: ENABLED")
+endif()
+
+if(TEPTRIS_ENABLE_LTO)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+endif()
+
+# Library warnings: scoped to teptris targets so fetched dependencies
+# (GTest) keep their own flags.
+set(TEPTRIS_WARN_FLAGS -Wall -Wextra -Wno-unused-parameter)
+if(TEPTRIS_WARNINGS_AS_ERRORS)
+    list(APPEND TEPTRIS_WARN_FLAGS -Werror)
+endif()
+
+add_subdirectory(src)
+
+if(TEPTRIS_BUILD_CLI)
+    add_subdirectory(cli)
+endif()
+
+if(TEPTRIS_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()
+
+if(BUILD_TESTING)
+    enable_testing()
+    add_subdirectory(test)
+endif()

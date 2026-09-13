@@ -1,0 +1,26 @@
+# Build directories (leptris convention: build-<purpose>)
+build*/
+
+# Generated
+compile_commands.json
+
+# Fetched corpora (TODO.impl/07) live here, pinned by fetch script
+corpus/
+
+# Generated benchmark corpus (TODO.impl/09) and results
+bench-corpus/
+
+# Artifacts
+*.o
+*.a
+*.so
+*.so.*
+*.dylib
+*.dll
+*.lib
+*.exe
+
+# Editors / OS
+.DS_Store
+.idea/
+.vscode/

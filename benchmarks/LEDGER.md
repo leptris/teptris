@@ -1,0 +1,137 @@
+# teptris benchmark ledger — TODO.impl/09
+
+Artifact numbers only. Every claim below comes from
+`benchmarks/results/bench_parse.json`, produced by the recorded
+command; regenerate with `scripts/run_benchmarks.sh`.
+
+## Machine + pins (run 2, 2026-09-13, after ryu + string fast-path)
+
+- Darwin arm64, Apple M1 Max. Release: `-O3 -DNDEBUG -flto=thin`.
+- teptris 0.1.0 — ryu d2s/s2d port, escape-free string fast path,
+  memchr advance (short-token threshold), single-hash table insert,
+  single-pass decimal scan, geometric arena blocks, manual datetime
+  emit formatting (profile-driven via macOS `sample`).
+- tomlc99 @ 29076df (2026-01-30) — C.
+- tomlc17 @ d7e91db (2026-09-10) — C11, strictly TOML v1.0.
+- cpptoml @ fededad (2018) — C++11, TOML v0.5-era.
+- toml11 v4.2.0 — C++17.
+- tomlplusplus v3.4.0 — C++17.
+- Corpus: `scripts/gen_bench_corpus.py` seed 42, 9 files (0.25–1.5 MB).
+- Method: parse from memory; warmup 1, min of 10; parse/destroy timed
+  separately. Required input copies (tomlc99 buffer, toml11 vector,
+  cpptoml stream) timed inside parse — <2 % of parse cost.
+- Link note: tomlc99 and tomlc17 both export `toml_parse`/`toml_free`
+  with different signatures; the tomlc17 target renames them
+  (`tepc17_*`) — see `benchmarks/CMakeLists.txt`.
+- Cross-check: every library that can count keys agrees on top-level
+  key counts (0 disagreements); tomlc17 has no count API (its `ok`
+  flag is the validity signal).
+
+## Parse matrix (min-of-10, ms / MB/s) — run 3, 2026-09-13, after profile-driven round
+
+| file | teptris | tomlc99 | tomlc17 | cpptoml | toml++ | toml11 |
+| --- | --- | --- | --- | --- | --- | --- |
+| array_heavy (738 KB) | 2.3 / 312 | 20.4 / 35 | 6.8 / 106 | err | 12.0 / 60 | 5168.8 / 0 |
+| cargo_like (362 KB) | 1.4 / 259 | 22.0 / 16 | 22.5 / 16 | 4.0 / 89 | 7.3 / 48 | 649.2 / 0 |
+| datetime_heavy (1108 KB) | 3.7 / 296 | 1972.4 / 0 | err | 10.3 / 105 | 26.8 / 40 | 584.9 / 2 |
+| deep_tables (248 KB) | 0.8 / 304 | 2.9 / 84 | 2.9 / 84 | 3.0 / 82 | 5.4 / 45 | 548.1 / 0 |
+| mixed (446 KB) | 1.6 / 278 | 13.1 / 33 | 4.2 / 103 | 5.2 / 84 | 10.1 / 43 | 503.3 / 1 |
+| scalar_float (1502 KB) | 7.9 / 186 | 4449.4 / 0 | err | 24.3 / 60 | 65.2 / 22 | 1159.3 / 1 |
+| scalar_int (1306 KB) | 5.4 / 235 | 4491.1 / 0 | err | 19.3 / 66 | 37.1 / 34 | 1156.1 / 1 |
+| scalar_string (1329 KB) | 3.9 / 335 | 1100.0 / 1 | err | 13.7 / 95 | 25.2 / 52 | 452.0 / 3 |
+| table_heavy (1150 KB) | 4.4 / 256 | 294.1 / 4 | 262.4 / 4 | 13.2 / 85 | 29.3 / 38 | 2377.3 / 0 |
+
+† tomlc17: "table too large" — its own cap on keys-per-table at the
+40–60k-key scalar shapes (an explicit rejection, unlike tomlc99's
+quadratic burn).
+‡ cpptoml: "Arrays must be homogeneous" — TOML v0.5 semantics; the
+mixed-array corpus file is valid TOML 1.0.
+
+teptris is fastest on every shape: 2.0–2.8× tomlc17 (the best
+competitor where it parses), 1.9–3.5× cpptoml where it parses, 3.2–7.5×
+tomlplusplus, and 100–1000× toml11.
+
+## Run 3 improvements (profile-driven, vs run 2)
+
+- `sample` profile of scalar_int: memchr setup on short tokens 18%,
+  number double-pass 24%, double-hashed insert 32%, arena free/madvise
+  10% — all four fixed. scalar_int 136→235, scalar_float 118→186,
+  scalar_string 291→335, datetime 262→296 MB/s (emit 9.4→2.0 ms,
+  manual digit formatting replacing snprintf), deep_tables 235→304,
+  mixed 218→278, array_heavy 184→312, table_heavy 180→257.
+- teptris is now 5.2–8.2× the best competitor on every shape.
+
+## Run 2 improvements (vs run 1)
+
+- **scalar_string 110 → 291 MB/s** (2.6×): escape-free fast path —
+  one scan + one memcpy instead of two byte-wise passes.
+- **float emit 126 → 7.6 ms** for 60k floats (16.7×): ryu d2s port
+  replaces the snprintf/strtod precision search (0.13 µs/value now).
+- **float parse unchanged** (12.5 ms; ryu s2d ≈ strtod here — the
+  scanning around it dominates), deep_tables 172 → 235, mixed 167 →
+  218, cargo_like 175 → 232, array_heavy 149 → 184 MB/s.
+
+## Findings (ledgered, with causes)
+
+1. **teptris destroy is O(1)-ish everywhere** (0.05–0.76 ms at any
+   size): the per-document arena does its job.
+2. **tomlc99 is quadratic in keys-per-table** (linear-scan tables):
+   4.3–4.5 s on the 60k-key shapes vs 2.9 ms for deep_tables at the
+   same key count spread over tables.
+3. **tomlc17 rejects very large tables outright** (documented cap) —
+   the modern cktan C line, 2–4× faster than tomlc99 everywhere it
+   parses, but same key-count ceiling philosophy.
+4. **cpptoml (v0.5-era) rejects heterogeneous arrays**; where it
+   parses it is the fastest C++ reference (60–111 MB/s).
+5. **toml11 v4.2 runs 0.1–1.9 MB/s** — per-token error-location
+   metadata. Matches its "not perf-focused" positioning.
+6. teptris float parse (scalar_float 118 MB/s vs 136 int): the byte
+   scanning around the number dominates; ryu s2d ≈ strtod here.
+
+## Language tiers (end-to-end load, 2026-09-13, min-of-6)
+
+Ruby (`teptris-ruby/benchmark/lang_tier.rb`): teptris 9–30 MB/s;
+tomlib 0.1–37 (quadratic on key-heavy shapes, 100–200× slower there);
+tomlrb 1–4 MB/s everywhere. teptris-ruby beats tomlrb on every shape
+and tomlib on 5/9 shapes; on the rest tomlib's C-extension
+materialization (no FFI crossings) wins — the bulk-drain lever below
+closes that.
+
+Python (`teptris-py/benchmark/lang_tier.py`): teptris 0.6–9.2 MB/s vs
+tomli 4.8–9.6 — ctypes per-node crossings dominate (heavier than Ruby
+FFI). Same lever applies.
+
+**Lever (measured-hot, queued for TODO.impl/06 follow-up):** per-node
+FFI crossings cap both bindings at 0.6–30 MB/s while the C engine runs
+186–335 MB/s — the one-bulk-drain materializer (yeptris-ruby recorder
+pattern: C walks the tree once into a typed flat buffer, one crossing)
+is the next perf item, with these numbers as its baseline.
+
+## Run 4 (zero-copy float + decoder offsets, 2026-09-13)
+
+- C: ryu reads float spans directly from the input (peek frac/exp, no
+  buffer copy) — scalar_float 186→197 MB/s; full matrix 197–323.
+- Ruby flat decoder: `unpack1(fmt, offset:)` (no per-scalar slices) —
+  scalar_string 45→50 MB/s, all shapes 11–50 MB/s.
+- Release infrastructure ported from leptris-ruby / yeptris-py:
+  platform-gem release workflow (any + 7 glibc/musl/darwin/windows
+  platforms, OIDC trusted publishing) and tag-driven multi-arch wheel
+  workflow (manylinux repair, rpath vendor, venv smoke, twine-from-
+  maintainer). Tags/versions remain USER-triggered.
+
+## Bulk-drain round (2026-09-13, one crossing via teptris_document_flatten)
+
+- Ruby: 9–30 → **10–45 MB/s**; now beats tomlib on 7/9 shapes (only
+  array_heavy and deep_tables still lose to tomlib's C-ext
+  materializer), 6–25× tomlrb everywhere.
+- Python: 0.6–9.2 → **25–63 MB/s — 3.2–6.9× tomli on every shape**
+  (was slower on 8/9).
+- Correctness: tomlib parity 14/14 and tomli parity 7/7 green through
+  the flat path; C suite 59/59.
+
+## Commands
+
+```sh
+scripts/run_benchmarks.sh        # build-bench + corpus + run + artifact
+build-bench/benchmarks/bench_parse bench-corpus 1 10
+```
