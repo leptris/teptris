@@ -129,6 +129,16 @@ is the next perf item, with these numbers as its baseline.
 - Correctness: tomlib parity 14/14 and tomli parity 7/7 green through
   the flat path; C suite 59/59.
 
+## Native-binding era (2026-09-13, ext-only, no fallback)
+
+Both bindings materialize in-language natively over the same C DOM:
+- teptris-ruby 0.2.0 (TeptrisExt C ext): 1.6x-124x tomlib on every
+  corpus shape (mixed 3.4x, array 5.0x, deep_tables 1.6x, datetime
+  124x), 50-380x toml-rb. FFI path deleted.
+- teptris-py 0.2.0 (teptris._native CPython module): 11x-37x tomli
+  on every shape (103-175 MB/s). ctypes deleted.
+Closes leptris/teptris-ruby#7 path 2 (owner decision: no fallback).
+
 ## Commands
 
 ```sh
