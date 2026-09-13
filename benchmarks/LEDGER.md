@@ -139,6 +139,31 @@ Both bindings materialize in-language natively over the same C DOM:
   on every shape (103-175 MB/s). ctypes deleted.
 Closes leptris/teptris-ruby#7 path 2 (owner decision: no fallback).
 
+## Platform-completion era (2026-09-14, v0.1.2/v0.1.3)
+
+Windows facts paid for with failed release runs, now encoded in the
+binding workflows:
+- CMake "MinGW Makefiles" recipes die under CI bash (MSYS path
+  conversion splits cmd.exe recipe targets) — use Ninja.
+- windows-latest ships a mingw gcc on PATH; CMake picks it by default.
+  MSVC consumers (CPython ext via link.exe) must build the core with
+  cl inside vcvars, STATIC=OFF (MSVC+Ninja static/import both emit
+  src/teptris.lib), ARCHIVE output dir beside the DLL.
+- An MSVC DLL exports nothing without dllexport: v0.1.2 tried
+  WINDOWS_EXPORT_ALL_SYMBOLS, whose generated .def cannot be parsed
+  under /GL ("unrecognized file format") — v0.1.3 annotates all 21
+  public decls with TEPTRIS_API (LTCG-safe, explicit).
+- mingw ruby exts bind x64-ucrt-rubyNNN.dll per minor: teptris-ruby
+  0.2.10 ships fat gems (x64: 3.1-4.0, arm64: 3.4/4.0 — all that
+  RubyInstaller ARM64 provides), loading lib/teptris/<minor>/.
+- teptris-py 0.2.1 rides v0.1.3 across the full 20-cell matrix.
+
+Known-open (pre-existing, Release-only, both fail identically on
+v0.1.1-era main; ASan/Debug green): Floats.JsonValue ("a = 1.0"
+emits "10000.0" inside test_unit only — standalone emit via the same
+Release lib is correct) and Emit.EmittedTomlAlwaysReparses. Needs an
+isolated reproduction; engine output validated separately.
+
 ## Commands
 
 ```sh
