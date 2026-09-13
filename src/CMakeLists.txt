@@ -38,9 +38,8 @@ if(TEPTRIS_BUILD_SHARED)
     target_compile_options(teptris_shared PRIVATE ${TEPTRIS_WARN_FLAGS})
     set_target_properties(teptris_shared PROPERTIES OUTPUT_NAME teptris
         VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
-    # The API uses no __declspec annotations; on ELF/Mach-O shared
-    # objects export everything anyway, but an MSVC DLL with zero
-    # dllexport symbols exports nothing and link.exe gets no import
-    # library. Auto-export the full symbol set on Windows.
-    set_target_properties(teptris_shared PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    # Public decls carry TEPTRIS_API; building the DLL marks them
+    # dllexport, which generates the import library directly (works with
+    # LTCG, unlike WINDOWS_EXPORT_ALL_SYMBOLS' generated .def).
+    target_compile_definitions(teptris_shared PRIVATE TEPTRIS_BUILDING_DLL)
 endif()
