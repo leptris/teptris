@@ -14,9 +14,9 @@ its own. It is the last uncovered lutaml-model format — `toml.rb`
 still resolves `tomllib`/`tomlrb` and carries a "skip tomlib on
 Windows due to segfaults" workaround.
 
-Status: pre-bootstrap. Split items into `TODO.impl/NN-*.md` as each
-starts, per yeptris convention. Gem publishing and version numbers
-are USER release decisions.
+Released: v0.1.0 tagged 2026-09-13 (USER-approved); gem + wheel
+workflows live in leptris/teptris-ruby and leptris/teptris-py.
+Versions remain USER release decisions.
 
 ## Verification matrix (the gates)
 
@@ -42,7 +42,7 @@ are USER release decisions.
 | 07 | [Conformance: toml-test, differentials, roundtrip, fuzz](TODO.impl/07-conformance.md) | 03, 05 | inline corpus + fuzz smoke done; fetched corpora + differentials pending |
 | 08 | [lutaml-model integration: `:teptris` adapter](TODO.impl/08-lutaml-model.md) | 06 | pending |
 | 09 | [Benchmarks: matrix, CI, ledger](TODO.impl/09-benchmarks.md) | 07 | v1 complete — six-reference matrix, three recorded runs; 186–335 MB/s, 5.2–8.2× best competitor on every shape |
-| 10 | [Packaging, ABI policy, release](TODO.impl/10-packaging.md) | all | pending |
+| 10 | [Packaging, ABI policy, release](TODO.impl/10-packaging.md) | all | v1: repos published (leptris/teptris + bindings), v0.1.0 tagged, release workflows live; install targets/pkg-config pending |
 
 Rules inherited from yeptris: `scripts/validate.sh` is the
 pre-completion gate (warnings-as-errors build → full tests → CLI
