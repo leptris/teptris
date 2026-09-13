@@ -2,6 +2,7 @@
 
 #include "teptris/memory/arena.h"
 #include "teptris/teptris.h"
+#include "teptris/version.h"
 
 #include "util.hpp"
 
@@ -48,7 +49,7 @@ TEST(Arena, LargeAllocationGetsOwnBlock)
 
 TEST(Api, VersionAndStatusStrings)
 {
-    EXPECT_STREQ(teptris_version_string(), "0.1.0");
+    EXPECT_STREQ(teptris_version_string(), TEPTRIS_VERSION_STRING);
     EXPECT_STREQ(teptris_status_string(TEPTRIS_OK), "ok");
     EXPECT_STREQ(teptris_status_string(TEPTRIS_ERR_SYNTAX), "syntax error");
 }
