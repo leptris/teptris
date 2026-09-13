@@ -72,10 +72,16 @@ if(TEPTRIS_ENABLE_LTO)
 endif()
 
 # Library warnings: scoped to teptris targets so fetched dependencies
-# (GTest) keep their own flags.
-set(TEPTRIS_WARN_FLAGS -Wall -Wextra -Wno-unused-parameter)
+# (GTest) keep their own flags. Generator expressions keep MSVC happy
+# (it rejects -Wall/-Wextra; leptris convention).
+set(TEPTRIS_WARN_FLAGS
+    $<$<OR:$<C_COMPILER_ID:GNU>,$<C_COMPILER_ID:Clang>,$<C_COMPILER_ID:AppleClang>>:
+        -Wall -Wextra -Wno-unused-parameter>
+    $<$<C_COMPILER_ID:MSVC>: /W4 /wd4100>)
 if(TEPTRIS_WARNINGS_AS_ERRORS)
-    list(APPEND TEPTRIS_WARN_FLAGS -Werror)
+    list(APPEND TEPTRIS_WARN_FLAGS
+        $<$<OR:$<C_COMPILER_ID:GNU>,$<C_COMPILER_ID:Clang>,$<C_COMPILER_ID:AppleClang>>:-Werror>
+        $<$<C_COMPILER_ID:MSVC>:/WX>)
 endif()
 
 add_subdirectory(src)
