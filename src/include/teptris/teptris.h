@@ -87,46 +87,46 @@ typedef struct teptris_options {
  * Table-key views point into `data`: the caller must keep the input
  * buffer alive for the lifetime of the document.
  * Memory: *out must be freed with teptris_document_free. */
-teptris_status TEPTRIS_API teptris_parse(const char *data, size_t len,
+TEPTRIS_API teptris_status teptris_parse(const char *data, size_t len,
                              const teptris_options *opts,
                              teptris_document **out);
 
 /* Memory: frees every allocation reachable from the document. */
-void TEPTRIS_API teptris_document_free(teptris_document *doc);
+TEPTRIS_API void teptris_document_free(teptris_document *doc);
 
-const teptris_error * TEPTRIS_API teptris_document_error(const teptris_document *doc);
-const teptris_node * TEPTRIS_API teptris_document_root(const teptris_document *doc);
+TEPTRIS_API const teptris_error * teptris_document_error(const teptris_document *doc);
+TEPTRIS_API const teptris_node * teptris_document_root(const teptris_document *doc);
 
-teptris_kind TEPTRIS_API teptris_node_kind(const teptris_node *node);
+TEPTRIS_API teptris_kind teptris_node_kind(const teptris_node *node);
 
 /* Type-checked scalar accessors: return TEPTRIS_ERR_ARG on kind mismatch
  * (or TEPTRIS_ERR_STATE with a NULL node). */
-teptris_status TEPTRIS_API teptris_node_string(const teptris_node *node, teptris_view *out);
-teptris_status TEPTRIS_API teptris_node_integer(const teptris_node *node, int64_t *out);
-teptris_status TEPTRIS_API teptris_node_float(const teptris_node *node, double *out);
-teptris_status TEPTRIS_API teptris_node_boolean(const teptris_node *node, bool *out);
-teptris_status TEPTRIS_API teptris_node_datetime(const teptris_node *node,
+TEPTRIS_API teptris_status teptris_node_string(const teptris_node *node, teptris_view *out);
+TEPTRIS_API teptris_status teptris_node_integer(const teptris_node *node, int64_t *out);
+TEPTRIS_API teptris_status teptris_node_float(const teptris_node *node, double *out);
+TEPTRIS_API teptris_status teptris_node_boolean(const teptris_node *node, bool *out);
+TEPTRIS_API teptris_status teptris_node_datetime(const teptris_node *node,
                                      teptris_datetime *out);
 
-size_t TEPTRIS_API teptris_node_array_length(const teptris_node *node);
-const teptris_node * TEPTRIS_API teptris_node_array_at(const teptris_node *node, size_t index);
+TEPTRIS_API size_t teptris_node_array_length(const teptris_node *node);
+TEPTRIS_API const teptris_node * teptris_node_array_at(const teptris_node *node, size_t index);
 
 /* Iteration is in insertion order. */
-size_t TEPTRIS_API teptris_node_table_length(const teptris_node *node);
-const teptris_node * TEPTRIS_API teptris_node_table_at(const teptris_node *node, size_t index,
+TEPTRIS_API size_t teptris_node_table_length(const teptris_node *node);
+TEPTRIS_API const teptris_node * teptris_node_table_at(const teptris_node *node, size_t index,
                                           teptris_view *key_out);
-const teptris_node * TEPTRIS_API teptris_node_table_get(const teptris_node *node,
+TEPTRIS_API const teptris_node * teptris_node_table_get(const teptris_node *node,
                                            const char *key, size_t key_len);
 
 /* Emit canonical TOML (deterministic; parse(emit(d)) == d).
  * Memory: *buf is malloc'd; caller frees with free(). */
-teptris_status TEPTRIS_API teptris_document_emit(const teptris_document *doc,
+TEPTRIS_API teptris_status teptris_document_emit(const teptris_document *doc,
                                      char **buf, size_t *len);
 
 /* Emit the toml-test wire shape: scalars as {"type":..,"value":..},
  * tables as objects, arrays as lists, insertion order.
  * Memory: *buf is malloc'd; caller frees with free(). */
-teptris_status TEPTRIS_API teptris_document_emit_json(const teptris_document *doc,
+TEPTRIS_API teptris_status teptris_document_emit_json(const teptris_document *doc,
                                           char **buf, size_t *len);
 
 /* Bulk drain for FFI/ctypes bindings: the whole tree in ONE crossing as
@@ -139,12 +139,12 @@ teptris_status TEPTRIS_API teptris_document_emit_json(const teptris_document *do
  *   bool   0x06 / 0x07
  *   dt     0x08..0x0B (offset/local-dt/date/time) i64 y u8 mo d h mi s u32 ns i64 off (25 B)
  * Memory: *buf is malloc'd; free with teptris_flatten_free. */
-teptris_status TEPTRIS_API teptris_document_flatten(const teptris_document *doc,
+TEPTRIS_API teptris_status teptris_document_flatten(const teptris_document *doc,
                                         uint8_t **buf, size_t *len);
-void TEPTRIS_API teptris_flatten_free(void *buf);
+TEPTRIS_API void teptris_flatten_free(void *buf);
 
-const char * TEPTRIS_API teptris_status_string(teptris_status status);
-const char * TEPTRIS_API teptris_version_string(void);
+TEPTRIS_API const char * teptris_status_string(teptris_status status);
+TEPTRIS_API const char * teptris_version_string(void);
 
 #ifdef __cplusplus
 }
