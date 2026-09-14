@@ -40,7 +40,12 @@ struct teptris_node {
     } as;
 };
 
+/* _Static_assert is C11; g++ (unlike clang++) has no such extension */
+#if defined(__cplusplus)
+static_assert(sizeof(teptris_node) <= 64, "teptris_node must stay compact");
+#else
 _Static_assert(sizeof(teptris_node) <= 64, "teptris_node must stay compact");
+#endif
 
 struct teptris_document {
     teptris_arena arena;
