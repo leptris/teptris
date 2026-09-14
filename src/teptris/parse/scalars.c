@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "teptris/common/chartype.h"
+#include "teptris/common/simd.h"
 #include "teptris/common/ryu/ryu_parse.h"
 #include "teptris/memory/arena.h"
 #include "teptris/parse/parse.h"
@@ -273,7 +274,32 @@ teptris_status tep_scan_literal(teptris_parser *ps, bool ml, char *out,
 bool teptris_try_plain_body(teptris_parser *ps, char close, const char **content,
                             size_t *len)
 {
+    /* Find the closing quote with memchr (platform SIMD), then reject
+     * the span if it contains an escape or control. Two tight passes
+     * beat a fused per-byte loop once the body is long enough that
+     * memchr's vector path engages; short bodies keep the one-pass
+     * loop so we never pay setup on tiny keys. */
     const char *p = ps->p;
+    size_t avail = (size_t)(ps->end - p);
+    if (avail >= 32) {
+        const void *hit = memchr(p, (unsigned char)close, avail);
+        if (hit == NULL) {
+            return false; /* unterminated */
+        }
+        size_t off = (size_t)((const char *)hit - p);
+        /* reject if escape/control appears before the closer.
+         * esc=0 for literals (no escapes); '"' strings forbid '\'. */
+        char esc = (close == '"') ? '\\' : 0;
+        size_t bad = tep_simd_str_stop(p, off, esc, 0);
+        /* str_stop with q=esc also stops on controls; any stop before
+         * off means the plain path cannot claim this body. */
+        if (bad < off) {
+            return false;
+        }
+        *content = p;
+        *len = off;
+        return true;
+    }
     const char *end = ps->end;
     while (p < end) {
         unsigned char c = (unsigned char)*p;
@@ -287,7 +313,7 @@ bool teptris_try_plain_body(teptris_parser *ps, char close, const char **content
         }
         p++;
     }
-    return false; /* unterminated / escaped / control: two-pass path reports */
+    return false;
 }
 
 static teptris_status parse_string(teptris_parser *ps, teptris_node **out)
