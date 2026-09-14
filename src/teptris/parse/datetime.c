@@ -55,7 +55,9 @@ static teptris_status finish_node(teptris_parser *ps, teptris_kind kind,
         return tep_fail_at(ps, NULL, TEPTRIS_ERR_ALLOC, "out of memory");
     }
     n->as.dt = *dt;
-    tep_adv(ps, total);
+    /* the consumed span is datetime grammar only — no newline can
+     * occur in it, so advance directly (skips tep_adv's memchr) */
+    ps->p += total;
     *out = n;
     return TEPTRIS_OK;
 }
