@@ -154,6 +154,20 @@ teptris_status tep_scan_basic(teptris_parser *ps, bool ml, char *out,
                 PUTCH(out, n, '\\');
                 tep_adv(ps, 1);
                 break;
+            case 'e': /* TOML 1.1: ESC */
+                PUTCH(out, n, 0x1B);
+                tep_adv(ps, 1);
+                break;
+            case 'x': { /* TOML 1.1: \xNN, first 256 codepoints */
+                tep_adv(ps, 1);
+                uint32_t cp;
+                teptris_status st2 = read_hex(ps, 2, &cp);
+                if (st2 != TEPTRIS_OK) {
+                    return st2;
+                }
+                utf8_put(out, &n, cp);
+                break;
+            }
             case 'u':
             case 'U': {
                 tep_adv(ps, 1);

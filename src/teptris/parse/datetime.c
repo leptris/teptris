@@ -38,9 +38,10 @@ bool teptris_datetime_lookahead(const teptris_parser *ps)
         p[7] == '-' && is_dig(p + 8) && is_dig(p + 9)) {
         return true;
     }
-    if (avail >= 8 && is_dig(p) && is_dig(p + 1) && p[2] == ':' &&
-        is_dig(p + 3) && is_dig(p + 4) && p[5] == ':' && is_dig(p + 6) &&
-        is_dig(p + 7)) {
+    /* TOML 1.1: seconds are optional — HH:MM alone dispatches here
+     * (HH:MM:SS still matches: p[5] == ':'). */
+    if (avail >= 5 && is_dig(p) && is_dig(p + 1) && p[2] == ':' &&
+        is_dig(p + 3) && is_dig(p + 4)) {
         return true;
     }
     return false;
@@ -87,9 +88,8 @@ teptris_status teptris_parse_datetime(teptris_parser *ps, teptris_node **out)
 
         bool has_time =
             p < end && (*p == 'T' || *p == 't' || *p == ' ') &&
-            (size_t)(end - p) >= 9 && is_dig(p + 1) && is_dig(p + 2) &&
-            p[3] == ':' && is_dig(p + 4) && is_dig(p + 5) && p[6] == ':' &&
-            is_dig(p + 7) && is_dig(p + 8);
+            (size_t)(end - p) >= 6 && is_dig(p + 1) && is_dig(p + 2) &&
+            p[3] == ':' && is_dig(p + 4) && is_dig(p + 5);
         if (!has_time) {
             return finish_node(ps, TEPTRIS_DATE_LOCAL, &dt,
                                (size_t)(p - start), out);
@@ -98,7 +98,16 @@ teptris_status teptris_parse_datetime(teptris_parser *ps, teptris_node **out)
 
         int h = d2(p);
         int mi = d2(p + 3);
-        int s = d2(p + 6);
+        int s = 0; /* TOML 1.1: seconds optional */
+        size_t consumed = 5;
+        if (p[5] == ':') {
+            if ((size_t)(end - p) < 8 || !is_dig(p + 6) || !is_dig(p + 7)) {
+                return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX,
+                                   "invalid second");
+            }
+            s = d2(p + 6);
+            consumed = 8;
+        }
         if (h > 23) {
             return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "invalid hour");
         }
@@ -111,7 +120,7 @@ teptris_status teptris_parse_datetime(teptris_parser *ps, teptris_node **out)
         dt.hour = (uint8_t)h;
         dt.minute = (uint8_t)mi;
         dt.second = (uint8_t)s;
-        p += 8;
+        p += consumed;
 
         if (p < end && *p == '.') {
             p++;
@@ -156,10 +165,18 @@ teptris_status teptris_parse_datetime(teptris_parser *ps, teptris_node **out)
                            (size_t)(p - start), out);
     }
 
-    /* time-only */
+    /* time-only; TOML 1.1: seconds optional */
     int h = d2(p);
     int mi = d2(p + 3);
-    int s = d2(p + 6);
+    int s = 0;
+    size_t consumed = 5;
+    if ((size_t)(end - p) >= 8 && p[5] == ':') {
+        if (!is_dig(p + 6) || !is_dig(p + 7)) {
+            return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "invalid second");
+        }
+        s = d2(p + 6);
+        consumed = 8;
+    }
     if (h > 23) {
         return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "invalid hour");
     }
@@ -172,7 +189,7 @@ teptris_status teptris_parse_datetime(teptris_parser *ps, teptris_node **out)
     dt.hour = (uint8_t)h;
     dt.minute = (uint8_t)mi;
     dt.second = (uint8_t)s;
-    p += 8;
+    p += consumed;
 
     if (p < end && *p == '.') {
         p++;
