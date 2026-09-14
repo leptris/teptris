@@ -164,6 +164,31 @@ emits "10000.0" inside test_unit only — standalone emit via the same
 Release lib is correct) and Emit.EmittedTomlAlwaysReparses. Needs an
 isolated reproduction; engine output validated separately.
 
+## Float exponent mis-parse + builder era (2026-09-14, v0.1.5)
+
+The two "Release-only" test failures (ledgered since v0.1.1 as
+inexplicable) are closed: emit_float read the ryu exponent with
+strtol, but teptris_ryu_d2s_buffered_n does NOT NUL-terminate — the
+parse ran into stale stack bytes and silently absorbed a leftover
+digit from a previous float's exponent (live repro: d2s wrote
+"3.14E0" n=6 while tmp[6] held a stale '1' -> strtol("01")=1 ->
+emitted "31.4"; "a = 1.0" -> "10000.0"). Zeroed stacks under
+ASan/Debug hid it; every plain build since v0.1.1 shipped the
+latent read. Fix: tmp[n] = 0. 66/66 under Release(LTO), no-LTO, ASan.
+
+Dump side landed with it: teptris_builder_* (stack construction,
+shape-derived inline/[[..]] rendering, open_inline_array for mixed
+arrays, per-kind datetime validation) so bindings emit through the
+one emitter. teptris-ruby 0.2.11 dumps natively through it:
+
+- corpus dump vs tomlib: 3.0x-10.2x ahead every shape (was pure
+  Ruby, 1.1x-6.1x BEHIND)
+- serialbench shapes (teptris-ruby#28): parse 1.63x/2.15x/2.16x
+  ahead (small/medium/large), dump 4.8x/6.6x/6.4x, GC allocations
+  1.00-1.01x parity (the 2.4-2.8x in #28 was the FFI-era gem)
+- exact datetimes both ways (timespec + Hinnant math / Rational
+  seconds), fixing 1ns drift on .999 nanosecond boundaries
+
 ## Commands
 
 ```sh
