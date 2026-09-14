@@ -1,4 +1,4 @@
-#include "teptris/version.h"
+#include "teptris/teptris.h"
 
 const char *teptris_version_string(void)
 {
