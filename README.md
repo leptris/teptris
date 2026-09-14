@@ -6,8 +6,9 @@ sibling of [libleptris](https://github.com/leptris/leptris) (XML) and
 required runtime dependencies, stable C ABI, opaque handles.
 
 Status: items 01–05, 07 (inline corpus) of the board are complete —
-see `TODO.md` + `TODO.impl/`. Pending: toml-test corpora runner (07),
-Ruby binding `teptris-ruby` (06), benchmarks (09), packaging (10).
+see `TODO.md` + `TODO.impl/`. Shipped: toml-test runner at 100%
+(714/714, TOML 1.1 view), Ruby/Python bindings (teptris-ruby,
+teptris-py), benchmarks, packaging.
 
 ## Build, test, validate
 
@@ -32,7 +33,7 @@ thread contract lands with the batch API).
 | ASAN | full suite green + fuzz smoke (truncations, mutations, random bytes) clean |
 | parse matrix vs C/C++ references | teptris 186–335 MB/s, fastest on every shape vs tomlc99, tomlc17, cpptoml, toml11, tomlplusplus (5.2–8.2× the best competitor) — `benchmarks/LEDGER.md` |
 | bindings | teptris-ruby (tomlib-shaped, parity specs) + teptris-py (tomllib-shaped, tomli parity) — see `TODO.impl/06` |
-| toml-test (BurntSushi) | pending — runner lands with `TODO.impl/07` corpora fetch |
+| toml-test (BurntSushi) | **100%** — 714/714 on the 1.1 view, 711/711 on the 1.0 view (`scripts/toml-test-run.sh`) |
 | differential vs tomlrb / tomllib | pending (needs item 06 binding) |
 
 ## API shape
