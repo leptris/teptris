@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test:
+    name: ${{ matrix.os }} (${{ matrix.build }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest]
+        build: [release, asan]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: |
+          FLAGS=""
+          if [ "${{ matrix.build }}" = "asan" ]; then
+            FLAGS="-fsanitize=address -fno-omit-frame-pointer"
+          fi
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON -DTEPTRIS_BUILD_CLI=ON \
+            -DCMAKE_C_FLAGS="$FLAGS" -DCMAKE_CXX_FLAGS="$FLAGS"
+
+      - name: Build (warning check)
+        if: matrix.build == 'release'
+        run: |
+          cmake --build build -j 2>&1 | tee /tmp/build.log
+          ! grep -iE "warning:" /tmp/build.log
+
+      - name: Build
+        if: matrix.build == 'asan'
+        run: cmake --build build -j
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  conformance:
+    name: toml-test (1.1 view)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+
+      - name: Build
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+            -DTEPTRIS_BUILD_CLI=ON -DTEPTRIS_BUILD_SHARED=OFF
+          cmake --build build -j
+
+      - name: toml-test
+        run: |
+          mkdir -p build/cli
+          # cmake puts the cli where the runner expects it
+          find build -name teptris -type f -exec cp {} build/cli/ \; 2>/dev/null || true
+          ls build/cli/
+          TOML_VERSION=1.1 bash scripts/toml-test-run.sh
