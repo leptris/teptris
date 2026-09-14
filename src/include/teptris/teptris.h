@@ -146,6 +146,61 @@ TEPTRIS_API void teptris_flatten_free(void *buf);
 TEPTRIS_API const char * teptris_status_string(teptris_status status);
 TEPTRIS_API const char * teptris_version_string(void);
 
+/* ------------------------------------------------------------- builder --
+ * Construct a document from materialized values (the dump side of
+ * parse): every emission flows through teptris_document_emit, so the
+ * emitter stays the single source of formatting truth.
+ *
+ * Stack discipline: open_* pushes a container, teptris_builder_close
+ * pops it; scalars attach to the current container. A NULL key means
+ * "element of the current array"; a keyed call requires a table
+ * current. Array nature is derived: the first table element makes the
+ * array an array-of-tables ([[..]] sections); scalars make it inline;
+ * mixing them is TEPTRIS_ERR_ARG. Tables reachable only as array
+ * elements or from inline tables render inline ({..}); tables under a
+ * section render as [..] sections.
+ *
+ * Keys and strings are copied into the document (no parse input is
+ * kept alive). Duplicate keys are TEPTRIS_ERR_ARG.
+ * Memory: the builder owns its document until teptris_builder_finish
+ * transfers it; otherwise teptris_builder_free destroys it. */
+typedef struct teptris_builder teptris_builder;
+
+TEPTRIS_API teptris_builder *teptris_builder_new(void);
+TEPTRIS_API void teptris_builder_free(teptris_builder *b);
+
+TEPTRIS_API teptris_status teptris_builder_put_string(teptris_builder *b,
+                                        const char *key, size_t key_len,
+                                        const char *val, size_t val_len);
+TEPTRIS_API teptris_status teptris_builder_put_integer(teptris_builder *b,
+                                        const char *key, size_t key_len,
+                                        int64_t v);
+TEPTRIS_API teptris_status teptris_builder_put_float(teptris_builder *b,
+                                        const char *key, size_t key_len,
+                                        double v);
+TEPTRIS_API teptris_status teptris_builder_put_boolean(teptris_builder *b,
+                                        const char *key, size_t key_len,
+                                        bool v);
+/* kind is one of TEPTRIS_DATETIME_OFFSET, TEPTRIS_DATETIME_LOCAL,
+ * TEPTRIS_DATE_LOCAL, TEPTRIS_TIME_LOCAL; fields must be zero where
+ * the kind does not use them (offset only for OFFSET). */
+TEPTRIS_API teptris_status teptris_builder_put_datetime(teptris_builder *b,
+                                        const char *key, size_t key_len,
+                                        teptris_kind kind,
+                                        const teptris_datetime *dt);
+
+TEPTRIS_API teptris_status teptris_builder_open_table(teptris_builder *b,
+                                        const char *key, size_t key_len);
+TEPTRIS_API teptris_status teptris_builder_open_array(teptris_builder *b,
+                                        const char *key, size_t key_len);
+/* like open_array but pinned inline ([..]) — for callers whose
+ * lookahead knows the array is not a homogeneous table array */
+TEPTRIS_API teptris_status teptris_builder_open_inline_array(teptris_builder *b,
+                                        const char *key, size_t key_len);
+TEPTRIS_API teptris_status teptris_builder_close(teptris_builder *b);
+TEPTRIS_API teptris_status teptris_builder_finish(teptris_builder *b,
+                                        teptris_document **out);
+
 #ifdef __cplusplus
 }
 #endif
