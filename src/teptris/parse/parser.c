@@ -436,8 +436,62 @@ static teptris_status parse_header(teptris_parser *ps)
     return TEPTRIS_OK;
 }
 
+/* Fused fast path for the dominant line shape: bare key, optional
+ * ws, '=', optional ws, value — no dots, no quoted key. Scans the key
+ * inline, parses the value, and does a single find+insert; avoids the
+ * parts-array arena allocation and the general dotted-key machinery.
+ * Rewinds and returns false for anything else. */
+static bool try_keyval_fast(teptris_parser *ps, teptris_node *tbl,
+                            teptris_status *st_out)
+{
+    const char *start = ps->p;
+    if (start >= ps->end || !tep_is_barekey((unsigned char)*start)) {
+        return false;
+    }
+    while (ps->p < ps->end && tep_is_barekey((unsigned char)*ps->p)) {
+        ps->p++;
+    }
+    /* a '.' or quote means dotted/quoted: general path (rewind) */
+    while (ps->p < ps->end && (*ps->p == ' ' || *ps->p == '\t')) {
+        ps->p++;
+    }
+    if (ps->p >= ps->end || *ps->p != '=') {
+        ps->p = start;
+        return false;
+    }
+    ps->p++; /* '=' */
+    while (ps->p < ps->end && (*ps->p == ' ' || *ps->p == '\t')) {
+        ps->p++;
+    }
+    const char *kend = start;
+    while (kend < ps->end && tep_is_barekey((unsigned char)*kend)) {
+        kend++;
+    }
+    teptris_view key = {start, (size_t)(kend - start)};
+
+    teptris_node *value;
+    teptris_status st = teptris_parse_value(ps, &value);
+    if (st != TEPTRIS_OK) {
+        *st_out = st;
+        return true;
+    }
+    uint64_t h;
+    if (teptris_dom_table_find_h(tbl, key.ptr, key.len, &h) != NULL) {
+        *st_out = tep_fail_at(ps, NULL, TEPTRIS_ERR_SEMANTIC,
+                              "duplicate key '%.*s'", (int)key.len, key.ptr);
+        return true;
+    }
+    *st_out = teptris_dom_table_insert_h(ps->doc, tbl, key, h, value);
+    return true;
+}
+
 static teptris_status parse_keyval(teptris_parser *ps)
 {
+    teptris_status fast;
+    if (try_keyval_fast(ps, ps->cur, &fast)) {
+        return fast;
+    }
+
     teptris_view *parts;
     size_t count;
     teptris_status st = teptris_parse_key_path(ps, &parts, &count);
@@ -468,6 +522,34 @@ static teptris_status parse_keyval(teptris_parser *ps)
 
 /* -------------------------------------------------- arrays, inline tbls -- */
 
+
+/* Array separator fast path: the overwhelmingly common shapes are
+ * ", v" and ",\n  v". Consume those with inline loops; only a '#'
+ * comment or CR forces the full skipper (which validates them). */
+static teptris_status skip_array_gap(teptris_parser *ps)
+{
+    for (;;) {
+        while (ps->p < ps->end && (*ps->p == ' ' || *ps->p == '\t')) {
+            ps->p++;
+        }
+        if (ps->p >= ps->end) {
+            return TEPTRIS_OK;
+        }
+        if (*ps->p == '\n') {
+            ps->line++;
+            ps->bol = ++ps->p;
+            continue;
+        }
+        if (*ps->p == '#') {
+            return tep_skip_ws_nl(ps);
+        }
+        if (*ps->p == '\r') {
+            return tep_skip_ws_nl(ps);
+        }
+        return TEPTRIS_OK;
+    }
+}
+
 teptris_status teptris_parse_array(teptris_parser *ps, teptris_node **out)
 {
     teptris_document *doc = ps->doc;
@@ -482,7 +564,7 @@ teptris_status teptris_parse_array(teptris_parser *ps, teptris_node **out)
     }
 
     for (;;) {
-        teptris_status st = tep_skip_ws_nl(ps);
+        teptris_status st = skip_array_gap(ps);
         if (st != TEPTRIS_OK) {
             return st;
         }
@@ -503,7 +585,7 @@ teptris_status teptris_parse_array(teptris_parser *ps, teptris_node **out)
         if (st != TEPTRIS_OK) {
             return st;
         }
-        st = tep_skip_ws_nl(ps);
+        st = skip_array_gap(ps);
         if (st != TEPTRIS_OK) {
             return st;
         }
@@ -553,6 +635,33 @@ teptris_status teptris_parse_inline(teptris_parser *ps, teptris_node **out)
             }
             tep_adv(ps, 1);
             break;
+        }
+
+        teptris_status fast;
+        if (try_keyval_fast(ps, tbl, &fast)) {
+            if (fast != TEPTRIS_OK) {
+                return fast;
+            }
+            st = tep_skip_ws(ps);
+            if (st != TEPTRIS_OK) {
+                return st;
+            }
+            if (ps->p < ps->end && *ps->p == ',') {
+                tep_adv(ps, 1);
+                need_member = true;
+                continue;
+            }
+            if (ps->p < ps->end && *ps->p == '}') {
+                tep_adv(ps, 1);
+                break;
+            }
+            if (ps->p < ps->end && (*ps->p == '\n' ||
+                                    (*ps->p == '\r' && ps->p + 1 < ps->end &&
+                                     ps->p[1] == '\n'))) {
+                return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX,
+                                   "newline not allowed in inline table");
+            }
+            return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "expected ',' or '}'");
         }
 
         teptris_view *parts;

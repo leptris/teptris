@@ -345,7 +345,7 @@ static teptris_status parse_string(teptris_parser *ps, teptris_node **out)
             buf[len] = '\0';
             n->as.str.ptr = buf;
             n->as.str.len = len;
-            tep_adv(ps, len + 1); /* single line: closing quote included */
+            ps->p += len + 1; /* verified control-free: no newline tracking */
             *out = n;
             return TEPTRIS_OK;
         }
@@ -576,10 +576,17 @@ static teptris_status parse_number(teptris_parser *ps, teptris_node **out,
             if (!signed_input || neg) {
                 const char *q = ps->p; /* at '.', 'e' or 'E' */
                 bool ok = true;
+                uint64_t fmag = mag; /* frac digits continue the mantissa */
+                size_t fdig = 0;
                 if (q < ps->end && *q == '.') {
                     q++;
                     if (q < ps->end && tep_is_dec((unsigned char)*q)) {
                         while (q < ps->end && tep_is_dec((unsigned char)*q)) {
+                            if (fdig < 18) {
+                                fmag = fmag * 10 +
+                                       (uint64_t)((unsigned char)*q - '0');
+                                fdig++;
+                            }
                             q++;
                         }
                         if (q < ps->end && *q == '_') {
@@ -589,23 +596,65 @@ static teptris_status parse_number(teptris_parser *ps, teptris_node **out,
                         ok = false; /* copy path reports "expected digits" */
                     }
                 }
+                long e10 = 0;
+                bool e_of = false;
                 if (ok && q < ps->end && (*q == 'e' || *q == 'E')) {
                     q++;
+                    bool eneg = false;
                     if (q < ps->end && (*q == '+' || *q == '-')) {
+                        eneg = (*q == '-');
                         q++;
                     }
                     if (q < ps->end && tep_is_dec((unsigned char)*q)) {
                         while (q < ps->end && tep_is_dec((unsigned char)*q)) {
+                            if (e10 < 100000) {
+                                e10 = e10 * 10 +
+                                      (long)((unsigned char)*q - '0');
+                            }
                             q++;
                         }
                         if (q < ps->end && *q == '_') {
                             ok = false;
+                        }
+                        if (eneg) {
+                            e10 = -e10;
+                        }
+                        if (e10 > 400 || e10 < -400) {
+                            e_of = true; /* ryu decides: inf/subnormal paths */
                         }
                     } else {
                         ok = false;
                     }
                 }
                 if (ok) {
+                    /* Clinger fast path: <=15 significant digits and a
+                     * decimal exponent within [-22, 22] combine via one
+                     * exact-power multiply/divide — both IEEE ops are
+                     * correctly rounded, so the result matches ryu. */
+                    long dexp = e10 - (long)fdig;
+                    size_t sig = dlen + fdig;
+                    if (!e_of && sig <= 15 && dexp >= -22 && dexp <= 22) {
+                        static const double pow10[23] = {
+                            1e0,  1e1,  1e2,  1e3,  1e4,  1e5,  1e6,  1e7,
+                            1e8,  1e9,  1e10, 1e11, 1e12, 1e13, 1e14, 1e15,
+                            1e16, 1e17, 1e18, 1e19, 1e20, 1e21, 1e22};
+                        double base = (double)fmag;
+                        double dv = (dexp >= 0) ? base * pow10[dexp]
+                                                : base / pow10[-dexp];
+                        if (neg) {
+                            dv = -dv;
+                        }
+                        teptris_node *n =
+                            teptris_dom_new_node(ps->doc, TEPTRIS_FLOAT);
+                        if (n == NULL) {
+                            return tep_fail_at(ps, NULL, TEPTRIS_ERR_ALLOC,
+                                               "out of memory");
+                        }
+                        n->as.f = dv;
+                        ps->p = (char *)q; /* digits only: no newlines */
+                        *out = n;
+                        return TEPTRIS_OK;
+                    }
                     const char *nstart = neg ? dstart - 1 : dstart;
                     size_t nlen = (size_t)(q - nstart);
                     double dv = 0.0;

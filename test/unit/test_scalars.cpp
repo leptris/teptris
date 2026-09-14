@@ -1,5 +1,7 @@
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
+#include <cstring>
 
 #include "teptris/teptris.h"
 
@@ -195,4 +197,63 @@ TEST(Booleans, JsonValue)
     ASSERT_NE(doc, nullptr);
     DocGuard g(doc);
     EXPECT_EQ(emit_json(doc), R"({"t":{"type":"bool","value":"true"}})");
+}
+
+/* The Clinger fast path (mantissa × exact pow10) must agree with ryu
+ * s2d on every value it claims — sweeping the digit/exponent boundary
+ * where the fast path switches to ryu. */
+TEST(Floats, ClingerAgreesWithRyu)
+{
+    /* mantissa digit counts 1..15, decimal exponents -22..22 */
+    for (int digits = 1; digits <= 15; digits++) {
+        std::string mant(digits, '7');
+        for (int e = -25; e <= 25; e++) {
+            char tok[64];
+            if (e >= 0) {
+                snprintf(tok, sizeof tok, "%se%d", mant.c_str(), e);
+            } else {
+                snprintf(tok, sizeof tok, "%se-%d", mant.c_str(), -e);
+            }
+            std::string src = std::string("v = ") + tok + "\n";
+            teptris_document *doc = nullptr;
+            ASSERT_EQ(teptris_parse(src.data(), src.size(), nullptr, &doc),
+                      TEPTRIS_OK);
+            DocGuard g(doc);
+            double got = 0;
+            ASSERT_EQ(teptris_node_float(
+                          teptris_node_table_get(teptris_document_root(doc),
+                                                "v", 1), &got), TEPTRIS_OK);
+            double want = strtod(tok, nullptr);
+            EXPECT_EQ(got, want) << "tok=" << tok;
+            /* and round-trips: the shortest representation of got must
+             * reparse to got */
+            char *buf = nullptr; size_t len = 0;
+            ASSERT_EQ(teptris_document_emit(doc, &buf, &len), TEPTRIS_OK);
+            teptris_document *d2 = nullptr;
+            ASSERT_EQ(teptris_parse(buf, len, nullptr, &d2), TEPTRIS_OK);
+            double again = 0;
+            teptris_node_float(teptris_node_table_get(
+                                   teptris_document_root(d2), "v", 1), &again);
+            teptris_document_free(d2);
+            free(buf);
+            EXPECT_EQ(again, want) << "round-trip " << tok;
+        }
+    }
+    /* fraction forms too: d.dddddddddddddddd crossing the 15-digit bound */
+    const char *fracs[] = {"0.5", "3.14", "0.0656", "1.234567890123456",
+                           "1.2345678901234567", "123456789012345.6",
+                           "12345678901234567.8", "0.000000000000000001",
+                           "12345.6789e-10", "999999999999999e-22",
+                           "1e22", "1e-22", "1e23", "1e-23"};
+    for (const char *f : fracs) {
+        std::string src = std::string("v = ") + f + "\n";
+        teptris_document *doc = nullptr;
+        ASSERT_EQ(teptris_parse(src.data(), src.size(), nullptr, &doc),
+                  TEPTRIS_OK);
+        DocGuard g(doc);
+        double got = 0;
+        teptris_node_float(teptris_node_table_get(teptris_document_root(doc),
+                                                  "v", 1), &got);
+        EXPECT_EQ(got, strtod(f, nullptr)) << f;
+    }
 }
