@@ -223,6 +223,28 @@ Wide operations (vector kernels, word hashes) pay setup that the
 per-byte loops don't, because TOML's tokens are tiny. leptris's SIMD
 wins came from long XML text runs — a shape TOML doesn't have.
 
+## Conformance era (2026-09-15, v0.1.9): 100% toml-test
+
+Closes item 07 (the 23 divergences). Three layers:
+
+1. The comparator, not the engine: json_eq.py did exact JSON
+   equality while the official runner (corpus json.go) compares
+   floats numerically and datetimes as parsed instants. Adopting
+   the official semantics closed 9/23 — every float "mismatch" was
+   numerically identical encoding ("300.0" vs "300").
+2. Two real 1.0 bugs, one root: resolve_header rejected ALL dotted-
+   table intermediates; TOML 1.0 allows [table] headers to define
+   sub-tables within dotted-key tables (only exact redefinition is
+   invalid). 1.0 view: 711/711.
+3. TOML 1.1 draft grammar (declared level, strict superset): \e,
+   \xNN escapes; optional seconds; inline-table newlines and
+   trailing commas. Runner materializes version views via
+   toml-test `copy` (default TOML_VERSION=1.1): 714/714.
+
+The 1.0 view's invalid/ tree holds exactly the 9 1.1-legalized
+constructs we deliberately accept — nothing else regressed.
+67/67 Release+ASan; 3x perf floor held (≥3.08x).
+
 ## Commands
 
 ```sh
