@@ -10,6 +10,7 @@ set(TEPTRIS_SOURCES
     teptris/common/ryu/s2d.c
     teptris/memory/arena.c
     teptris/dom/dom.c
+    teptris/build.c
     teptris/parse/parser.c
     teptris/parse/keys.c
     teptris/parse/scalars.c

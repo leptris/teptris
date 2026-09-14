@@ -75,6 +75,8 @@ static void emit_float(ebuf *b, double f)
      * notation: fixed-point when compact, scientific otherwise. */
     char tmp[32];
     int n = teptris_ryu_d2s_buffered_n(f, tmp);
+    /* the _n ryu variant does NOT terminate: bound every later read */
+    tmp[n] = '\0';
 
     size_t i = 0;
     bool neg = false;
