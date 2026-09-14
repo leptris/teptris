@@ -189,6 +189,40 @@ one emitter. teptris-ruby 0.2.11 dumps natively through it:
 - exact datetimes both ways (timespec + Hinnant math / Rational
   seconds), fixing 1ns drift on .999 nanosecond boundaries
 
+## 3x-floor era (2026-09-14, v0.1.8)
+
+Mandate: every bench-corpus shape >= 3x the best competitor.
+Starting point: mixed 2.89x, array/datetime 3.01x razor-thin,
+float 3.14x but only 195 MB/s absolute.
+
+Landed (profile-driven, one change per hot spot):
+- Clinger float fast path (<=15 sig digits, exp in [-22,22]: one
+  exact-pow10 multiply/divide, bit-identical to ryu; differential
+  test sweeps the boundary vs strtod + round-trip)
+- fused bare-key fast path in parse_keyval/parse_inline (skips the
+  per-key parts-array arena alloc; rewinds for dotted/quoted keys)
+- direct advance for newline-verified spans (datetime tokens, plain
+  string bodies) instead of tep_adv's memchr
+- inline array-gap ws skip
+
+Final (median of 2x20-rep min-of): array 3.49x/385MB/s, cargo
+3.30x/290, datetime 3.51x/370, deep 3.73x/321, mixed 3.20x/339
+(floor), float 3.68x/267, int 3.65x/260, string 3.90x/395, table
+3.35x/289. Gates: 67/67 Release+ASan, toml-test 756/23.
+
+Measured and REVERTED:
+- word-at-a-time key hash (FNV per 8B + splitmix finalizer): clean
+  interleaved A/B lost 8/9 shapes by up to 29% (deep_tables worst).
+  Byte-at-a-time FNV pipelines its multiply chain with the byte
+  loads and wins at TOML key lengths.
+- (v0.1.7) SIMD bare-key/ws/comment kernels: net losses; TOML
+  tokens are 3-10 bytes.
+
+Pattern across both eras: this workload rewards TIGHT SCALAR LOOPS.
+Wide operations (vector kernels, word hashes) pay setup that the
+per-byte loops don't, because TOML's tokens are tiny. leptris's SIMD
+wins came from long XML text runs — a shape TOML doesn't have.
+
 ## Commands
 
 ```sh
