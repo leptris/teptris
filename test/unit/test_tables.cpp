@@ -148,7 +148,6 @@ TEST(Tables, DefineSemanticsErrors)
         "a = 1\n[a]",                          /* value redefined as table */
         "a = 1\n[[a]]",                        /* value redefined as aot */
         "a = {x = 1, x = 2}",                  /* dup key in inline */
-        "a = {x = 1,}",                        /* trailing comma in inline */
         "a = {x = 1\ny = 2}",                  /* newline in inline */
         "a = [1, 2",                           /* unterminated array */
     };

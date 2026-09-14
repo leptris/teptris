@@ -317,12 +317,10 @@ static teptris_status resolve_header(teptris_parser *ps, const teptris_view *par
                                    "cannot extend inline table '%.*s'",
                                    (int)part.len, part.ptr);
             }
-            if (v->flags & TBL_DOTTED) {
-                return tep_fail_at(ps, NULL, TEPTRIS_ERR_SEMANTIC,
-                                   "cannot extend table '%.*s' defined by a "
-                                   "dotted key",
-                                   (int)part.len, part.ptr);
-            }
+            /* TBL_DOTTED intermediates are walkable: the spec allows
+             * [table] headers to define sub-tables within dotted-key
+             * tables ([fruit.apple.texture] after apple.color = ...).
+             * Exact redefinition is still rejected at the final part. */
             t = v;
         } else {
             return tep_fail_at(ps, NULL, TEPTRIS_ERR_SEMANTIC,
@@ -618,9 +616,12 @@ teptris_status teptris_parse_inline(teptris_parser *ps, teptris_node **out)
         return tep_fail_at(ps, NULL, TEPTRIS_ERR_DEPTH, "nesting too deep");
     }
 
-    bool need_member = false;
+    /* TOML 1.1 grammar: newlines (with comments) between members and
+     * a trailing comma before '}' are accepted; the 1.0-strict
+     * versions of those documents live in the versioned corpus's
+     * invalid/ tree for parsers targeting 1.0 only. */
     for (;;) {
-        teptris_status st = tep_skip_ws(ps);
+        teptris_status st = skip_array_gap(ps);
         if (st != TEPTRIS_OK) {
             return st;
         }
@@ -629,10 +630,6 @@ teptris_status teptris_parse_inline(teptris_parser *ps, teptris_node **out)
                                "unterminated inline table");
         }
         if (*ps->p == '}') {
-            if (need_member) {
-                return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX,
-                                   "trailing comma in inline table");
-            }
             tep_adv(ps, 1);
             break;
         }
@@ -642,76 +639,49 @@ teptris_status teptris_parse_inline(teptris_parser *ps, teptris_node **out)
             if (fast != TEPTRIS_OK) {
                 return fast;
             }
+        } else {
+            teptris_view *parts;
+            size_t count;
+            st = teptris_parse_key_path(ps, &parts, &count);
+            if (st != TEPTRIS_OK) {
+                return st;
+            }
             st = tep_skip_ws(ps);
             if (st != TEPTRIS_OK) {
                 return st;
             }
-            if (ps->p < ps->end && *ps->p == ',') {
-                tep_adv(ps, 1);
-                need_member = true;
-                continue;
-            }
-            if (ps->p < ps->end && *ps->p == '}') {
-                tep_adv(ps, 1);
-                break;
-            }
-            if (ps->p < ps->end && (*ps->p == '\n' ||
-                                    (*ps->p == '\r' && ps->p + 1 < ps->end &&
-                                     ps->p[1] == '\n'))) {
+            if (ps->p >= ps->end || *ps->p != '=') {
                 return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX,
-                                   "newline not allowed in inline table");
+                                   "expected '=' after key");
             }
-            return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "expected ',' or '}'");
+            tep_adv(ps, 1);
+            st = tep_skip_ws(ps);
+            if (st != TEPTRIS_OK) {
+                return st;
+            }
+
+            teptris_node *value;
+            st = teptris_parse_value(ps, &value);
+            if (st != TEPTRIS_OK) {
+                return st;
+            }
+            st = insert_dotted(ps, tbl, parts, count, value);
+            if (st != TEPTRIS_OK) {
+                return st;
+            }
         }
 
-        teptris_view *parts;
-        size_t count;
-        st = teptris_parse_key_path(ps, &parts, &count);
-        if (st != TEPTRIS_OK) {
-            return st;
-        }
-        st = tep_skip_ws(ps);
-        if (st != TEPTRIS_OK) {
-            return st;
-        }
-        if (ps->p >= ps->end || *ps->p != '=') {
-            return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX,
-                               "expected '=' after key");
-        }
-        tep_adv(ps, 1);
-        st = tep_skip_ws(ps);
-        if (st != TEPTRIS_OK) {
-            return st;
-        }
-
-        teptris_node *value;
-        st = teptris_parse_value(ps, &value);
-        if (st != TEPTRIS_OK) {
-            return st;
-        }
-        st = insert_dotted(ps, tbl, parts, count, value);
-        if (st != TEPTRIS_OK) {
-            return st;
-        }
-
-        st = tep_skip_ws(ps);
+        st = skip_array_gap(ps);
         if (st != TEPTRIS_OK) {
             return st;
         }
         if (ps->p < ps->end && *ps->p == ',') {
             tep_adv(ps, 1);
-            need_member = true;
             continue;
         }
         if (ps->p < ps->end && *ps->p == '}') {
             tep_adv(ps, 1);
             break;
-        }
-        if (ps->p < ps->end && (*ps->p == '\n' ||
-                                (*ps->p == '\r' && ps->p + 1 < ps->end &&
-                                 ps->p[1] == '\n'))) {
-            return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX,
-                               "newline not allowed in inline table");
         }
         return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "expected ',' or '}'");
     }
