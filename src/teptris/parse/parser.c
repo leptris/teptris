@@ -435,47 +435,6 @@ static teptris_status parse_header(teptris_parser *ps)
     return TEPTRIS_OK;
 }
 
-/* Value dispatch with the plain-integer hot path inlined: arrays of
- * numbers and int-valued key/value lines stop paying the extern
- * parse_value call + switch. Any irregularity (sign, radix prefix,
- * float shape, leading zero, >18 digits, underscore) rewinds and
- * defers to the general parser, so behavior is identical. */
-static teptris_status parse_value_fast(teptris_parser *ps, teptris_node **out)
-{
-    if (ps->p < ps->end) {
-        unsigned char c = (unsigned char)*ps->p;
-        if (c >= '0' && c <= '9' && !teptris_datetime_lookahead(ps)) {
-            const char *start = ps->p;
-            uint64_t mag = 0;
-            while (ps->p < ps->end &&
-                   (unsigned char)*ps->p >= '0' &&
-                   (unsigned char)*ps->p <= '9') {
-                mag = mag * 10 + (uint64_t)((unsigned char)*ps->p - '0');
-                ps->p++;
-            }
-            size_t dlen = (size_t)(ps->p - start);
-            if (dlen > 0 && dlen <= 18 && start[0] != '0' &&
-                !(ps->p < ps->end &&
-                  ((unsigned char)*ps->p == '.' || (unsigned char)*ps->p == 'e' ||
-                   (unsigned char)*ps->p == 'E' || (unsigned char)*ps->p == '_'))) {
-                teptris_node *n = teptris_arena_fast_alloc(
-                    &ps->doc->arena, sizeof(teptris_node));
-                if (n == NULL) {
-                    return tep_fail_at(ps, NULL, TEPTRIS_ERR_ALLOC,
-                                       "out of memory");
-                }
-                memset(n, 0, sizeof(*n));
-                n->kind = (uint8_t)TEPTRIS_INTEGER;
-                n->as.i = (int64_t)mag;
-                *out = n;
-                return TEPTRIS_OK;
-            }
-            ps->p = start; /* rewind: parse_number re-reads and decides */
-        }
-    }
-    return teptris_parse_value(ps, out);
-}
-
 /* Fused fast path for the dominant line shape: bare key, optional
  * ws, '=', optional ws, value — no dots, no quoted key. Scans the key
  * inline, parses the value, and does a single find+insert; avoids the
@@ -513,7 +472,7 @@ static bool try_keyval_fast(teptris_parser *ps, teptris_node *tbl,
     teptris_view key = {start, (size_t)(kend - start)};
 
     teptris_node *value;
-    teptris_status st = parse_value_fast(ps, &value);
+    teptris_status st = teptris_parse_value_fast(ps, &value);
     if (st != TEPTRIS_OK) {
         *st_out = st;
         return true;
@@ -620,7 +579,7 @@ teptris_status teptris_parse_array(teptris_parser *ps, teptris_node **out)
             break;
         }
         teptris_node *v;
-        st = parse_value_fast(ps, &v);
+        st = teptris_parse_value_fast(ps, &v);
         if (st != TEPTRIS_OK) {
             return st;
         }
