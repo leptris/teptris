@@ -32,6 +32,7 @@ if(TEPTRIS_BUILD_STATIC)
     target_compile_options(teptris PRIVATE ${TEPTRIS_WARN_FLAGS})
 endif()
 
+
 if(TEPTRIS_BUILD_SHARED)
     add_library(teptris_shared SHARED ${TEPTRIS_SOURCES})
     target_include_directories(teptris_shared PUBLIC $<BUILD_INTERFACE:${teptris_pub_include}>)
@@ -43,4 +44,25 @@ if(TEPTRIS_BUILD_SHARED)
     # dllexport, which generates the import library directly (works with
     # LTCG, unlike WINDOWS_EXPORT_ALL_SYMBOLS' generated .def).
     target_compile_definitions(teptris_shared PRIVATE TEPTRIS_BUILDING_DLL)
+endif()
+
+# PGO knobs live after both library targets exist so each gets them.
+# TRAIN: compile-only instrumentation plus an INTERFACE link flag so
+# consumers (the CLI trainer, harnesses) pull the profile runtime.
+# USE: teptris targets only — benchmark competitors stay flag-free.
+if(TEPTRIS_PROFILE_USE)
+    foreach(tgt teptris teptris_shared)
+        if(TARGET ${tgt})
+            target_compile_options(${tgt} PRIVATE
+                -fprofile-use=${TEPTRIS_PROFILE_USE} -fprofile-correction)
+        endif()
+    endforeach()
+endif()
+if(TEPTRIS_PROFILE_TRAIN)
+    foreach(tgt teptris teptris_shared)
+        if(TARGET ${tgt})
+            target_compile_options(${tgt} PRIVATE -fprofile-generate)
+            target_link_options(${tgt} INTERFACE -fprofile-generate)
+        endif()
+    endforeach()
 endif()
