@@ -33,14 +33,19 @@ bool teptris_datetime_lookahead(const teptris_parser *ps)
 {
     const char *p = ps->p;
     size_t avail = (size_t)(ps->end - p);
-    if (avail >= 10 && is_dig(p) && is_dig(p + 1) && is_dig(p + 2) &&
-        is_dig(p + 3) && p[4] == '-' && is_dig(p + 5) && is_dig(p + 6) &&
-        p[7] == '-' && is_dig(p + 8) && is_dig(p + 9)) {
+    /* Separator bytes first: every int/float value pays this check on
+     * its way to parse_number, and plain numbers fail both in two
+     * loads (p[4] is a digit or delimiter, never '-'; p[2] likewise
+     * never ':'). Digit verification only runs when a datetime shape
+     * is actually possible. */
+    if (avail >= 10 && p[4] == '-' && p[7] == '-' && is_dig(p) &&
+        is_dig(p + 1) && is_dig(p + 2) && is_dig(p + 3) && is_dig(p + 5) &&
+        is_dig(p + 6) && is_dig(p + 8) && is_dig(p + 9)) {
         return true;
     }
     /* TOML 1.1: seconds are optional — HH:MM alone dispatches here
      * (HH:MM:SS still matches: p[5] == ':'). */
-    if (avail >= 5 && is_dig(p) && is_dig(p + 1) && p[2] == ':' &&
+    if (avail >= 5 && p[2] == ':' && is_dig(p) && is_dig(p + 1) &&
         is_dig(p + 3) && is_dig(p + 4)) {
         return true;
     }
