@@ -49,12 +49,13 @@ static teptris_status quoted_key(teptris_parser *ps, teptris_view *out)
     return TEPTRIS_OK;
 }
 
-teptris_status teptris_parse_key_path(teptris_parser *ps, teptris_view **parts,
-                                      size_t *count)
+teptris_status teptris_parse_key_path(teptris_parser *ps,
+                                      teptris_view *sbuf, size_t scap,
+                                      teptris_view **parts, size_t *count)
 {
     teptris_arena *a = &ps->doc->arena;
-    teptris_view *v = NULL;
-    size_t n = 0, cap = 0;
+    teptris_view *v = sbuf;
+    size_t n = 0, cap = scap;
 
     for (;;) {
         teptris_status st = tep_skip_ws(ps);
@@ -85,7 +86,7 @@ teptris_status teptris_parse_key_path(teptris_parser *ps, teptris_view **parts,
         }
 
         if (n == cap) {
-            size_t ncap = cap ? cap * 2 : 4;
+            size_t ncap = cap * 2;
             teptris_view *nv = teptris_arena_try_grow(
                 a, v, cap * sizeof(teptris_view), ncap * sizeof(teptris_view));
             if (nv == NULL) {

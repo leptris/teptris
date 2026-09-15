@@ -16,7 +16,8 @@ uint64_t teptris_dom_key_hash(const char *key, size_t key_len)
 
 teptris_node *teptris_dom_new_node(teptris_document *doc, teptris_kind kind)
 {
-    teptris_node *n = teptris_arena_alloc(&doc->arena, sizeof(teptris_node));
+    teptris_node *n = teptris_arena_fast_alloc(&doc->arena,
+                                               sizeof(teptris_node));
     if (n == NULL) {
         return NULL;
     }

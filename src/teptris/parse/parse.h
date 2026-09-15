@@ -30,6 +30,9 @@ void tep_adv(teptris_parser *ps, size_t n);
 
 /* scalars.c: dispatch on the first byte; parses any value. */
 teptris_status teptris_parse_value(teptris_parser *ps, teptris_node **out);
+/* Number (int/float/inf/nan); signed_input: cursor at '+'/'-'. */
+teptris_status teptris_parse_number(teptris_parser *ps, teptris_node **out,
+                                    bool signed_input);
 
 /* parser.c: composite values. */
 teptris_status teptris_parse_array(teptris_parser *ps, teptris_node **out);
@@ -49,8 +52,13 @@ bool teptris_try_plain_body(teptris_parser *ps, char close, const char **content
                             size_t *len);
 
 /* keys.c: dotted key path. Parts are views (input or arena copies). */
-teptris_status teptris_parse_key_path(teptris_parser *ps, teptris_view **parts,
-                                      size_t *count);
+/* Parses a dotted key path. `sbuf`/`scap` is a CALLER-OWNED buffer
+ * (typically a stack array of 8): paths that fit never allocate, and
+ * *parts points into it or into the document arena — valid until the
+ * caller's frame ends or the document is freed. */
+teptris_status teptris_parse_key_path(teptris_parser *ps,
+                                      teptris_view *sbuf, size_t scap,
+                                      teptris_view **parts, size_t *count);
 
 /* datetime.c */
 bool teptris_datetime_lookahead(const teptris_parser *ps);

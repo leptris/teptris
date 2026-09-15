@@ -480,8 +480,8 @@ static bool mag_from(const char *s, size_t n, int radix, uint64_t *out)
     return true;
 }
 
-static teptris_status parse_number(teptris_parser *ps, teptris_node **out,
-                                   bool signed_input)
+teptris_status teptris_parse_number(teptris_parser *ps, teptris_node **out,
+                                    bool signed_input)
 {
     bool neg = false;
     if (signed_input) {
@@ -873,16 +873,16 @@ teptris_status teptris_parse_value(teptris_parser *ps, teptris_node **out)
     }
     case 'i':
     case 'n':
-        return parse_number(ps, out, false);
+        return teptris_parse_number(ps, out, false);
     case '+':
     case '-':
-        return parse_number(ps, out, true);
+        return teptris_parse_number(ps, out, true);
     default:
         if (teptris_datetime_lookahead(ps)) {
             return teptris_parse_datetime(ps, out);
         }
         if (tep_is_dec(c)) {
-            return parse_number(ps, out, false);
+            return teptris_parse_number(ps, out, false);
         }
         return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "expected value");
     }
