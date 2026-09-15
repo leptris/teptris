@@ -842,6 +842,48 @@ slow_decimal:;
     return TEPTRIS_OK;
 }
 
+/* Value dispatch with the plain-integer hot path: digit-led values
+ * parse inline (Horner + arena node) when the token is a plain
+ * <=18-digit int; everything else defers to the general parser.
+ * Kept out-of-line on purpose: inlining it into the keyval/array
+ * loops bloated their footprints and cost string-heavy shapes more
+ * than the int path gained (measured). */
+teptris_status teptris_parse_value_fast(teptris_parser *ps, teptris_node **out)
+{
+    if (ps->p < ps->end) {
+        unsigned char c = (unsigned char)*ps->p;
+        if (c >= '0' && c <= '9' && !teptris_datetime_lookahead(ps)) {
+            const char *start = ps->p;
+            uint64_t mag = 0;
+            while (ps->p < ps->end && (unsigned char)*ps->p >= '0' &&
+                   (unsigned char)*ps->p <= '9') {
+                mag = mag * 10 + (uint64_t)((unsigned char)*ps->p - '0');
+                ps->p++;
+            }
+            size_t dlen = (size_t)(ps->p - start);
+            if (dlen > 0 && dlen <= 18 && start[0] != '0' &&
+                !(ps->p < ps->end &&
+                  ((unsigned char)*ps->p == '.' ||
+                   (unsigned char)*ps->p == 'e' || (unsigned char)*ps->p == 'E' ||
+                   (unsigned char)*ps->p == '_'))) {
+                teptris_node *n = teptris_arena_fast_alloc(
+                    &ps->doc->arena, sizeof(teptris_node));
+                if (n == NULL) {
+                    return tep_fail_at(ps, NULL, TEPTRIS_ERR_ALLOC,
+                                       "out of memory");
+                }
+                memset(n, 0, sizeof(*n));
+                n->kind = (uint8_t)TEPTRIS_INTEGER;
+                n->as.i = (int64_t)mag;
+                *out = n;
+                return TEPTRIS_OK;
+            }
+            ps->p = start;
+        }
+    }
+    return teptris_parse_value(ps, out);
+}
+
 teptris_status teptris_parse_value(teptris_parser *ps, teptris_node **out)
 {
     if (ps->p >= ps->end) {

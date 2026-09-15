@@ -30,6 +30,7 @@ void tep_adv(teptris_parser *ps, size_t n);
 
 /* scalars.c: dispatch on the first byte; parses any value. */
 teptris_status teptris_parse_value(teptris_parser *ps, teptris_node **out);
+teptris_status teptris_parse_value_fast(teptris_parser *ps, teptris_node **out);
 /* Number (int/float/inf/nan); signed_input: cursor at '+'/'-'. */
 teptris_status teptris_parse_number(teptris_parser *ps, teptris_node **out,
                                     bool signed_input);
