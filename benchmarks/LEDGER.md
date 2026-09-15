@@ -245,6 +245,31 @@ The 1.0 view's invalid/ tree holds exactly the 9 1.1-legalized
 constructs we deliberately accept — nothing else regressed.
 67/67 Release+ASan; 3x perf floor held (≥3.08x).
 
+## Table-index era (2026-09-15, v0.1.10)
+
+The 3x floor was met (v0.1.8) but thin: mixed 3.19-3.41x across
+runs, within bench noise of dipping under. The profile showed
+table indexing as the shared hot spot of every thin shape:
+
+- index_rebuild re-hashed every key on every capacity doubling —
+  O(n log n) hashing per table (scalar_int's 30k-entry root:
+  ~60k redundant key hashes per parse).
+- find_h re-hashed keys the parser's bare-key scan had just walked.
+
+Fixes: entries cache their hash (24B -> 32B; rebuilds only re-slot,
+never re-hash); the fused bare-key fast path computes FNV-1a inline
+with the key scan and probes with the precomputed hash
+(find_probe, hash-prefiltered before memcmp).
+
+Interleaved 2x20 A/B vs v0.1.9 (measured under ~16 load — both
+sides back-to-back, min-of filters the spikes):
+int 1.31x / float 1.31x / datetime 1.32x / string 1.21x /
+cargo 1.13x / table 1.07x / mixed 1.04x.
+
+Ratio floor vs best competitor: mixed 3.41x; every shape >= 3.4x.
+Gates: 67/67 Release+ASan, toml-test 714/714 — this is the first
+PR gated by teptris's own CI (green before merge).
+
 ## Commands
 
 ```sh
