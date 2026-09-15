@@ -44,6 +44,12 @@ else()
 endif()
 option(TEPTRIS_ENABLE_LTO "Enable link-time optimization (default ON for Release)" ${TEPTRIS_ENABLE_LTO_DEFAULT})
 
+# Merged llvm-profdata applied to teptris targets only (compile) and to
+# consumers that link the LTO'd objects (ThinLTO consumes the profile at
+# link time). Keeps benchmark competitors flag-free for fair ratios.
+set(TEPTRIS_PROFILE_USE "" CACHE FILEPATH "Merged .profdata for -fprofile-use (teptris targets only)")
+set(TEPTRIS_PROFILE_TRAIN OFF CACHE BOOL "Compile teptris targets with -fprofile-generate (training stage)")
+
 # ------------------------------------------------------------- sanitizers --
 if(TEPTRIS_ENABLE_ASAN AND TEPTRIS_ENABLE_TSAN)
     message(FATAL_ERROR "ASAN and TSAN are mutually exclusive")

@@ -301,6 +301,27 @@ next lever is PGO — the dispatch is branch-mispredict heavy and
 boundary work is exhausted (three rounds of measured micro-losses
 on attempted further fusion).
 
+
+## PGO (2026-09-16, v0.1.13 build machinery)
+
+Two-stage PGO measured on arm64 darwin (load ~6, medians of 2
+interleaved reps-30 rounds vs the same-tree non-PGO baseline;
+scripts/build-pgo.sh encapsulates gen/train/use, `teptris format`
+over the corpus trains parse + emit):
+
+- absolute gains: mixed +12.8%, datetime +13.2%, deep +10.6%,
+  int +10.4%, table +9.8%, array +4.5%, string +2.5%
+- ratios vs best competitor: deep 3.92 -> 4.34, table 3.82 -> 4.12
+  (both cross 4x); mixed 3.50 -> 3.90, cargo 3.60 -> 3.71 remain
+- weighted retraining (3x mixed/cargo copies) trades breadth for the
+  stragglers (deep drops to 4.08) — keep the balanced corpus
+- profile says the remaining mixed/cargo heat is the hash path
+  (dom_table_find_probe 27M + insert_h 25M + find_h 13M block hits)
+  plus parse_key_path/finish_line — that micro-opt is the next lever,
+  not more training
+
+CMake: TEPTRIS_PROFILE_TRAIN (stage 1) / TEPTRIS_PROFILE_USE (stage
+2, teptris targets only so bench competitors stay flag-free).
 ## Commands
 
 ```sh
