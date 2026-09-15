@@ -852,7 +852,13 @@ teptris_status teptris_parse_value_fast(teptris_parser *ps, teptris_node **out)
 {
     if (ps->p < ps->end) {
         unsigned char c = (unsigned char)*ps->p;
-        if (c >= '0' && c <= '9' && !teptris_datetime_lookahead(ps)) {
+        if (c >= '0' && c <= '9') {
+            if (teptris_datetime_lookahead(ps)) {
+                /* straight to the datetime parser: falling through
+                 * parse_value would re-run the lookahead (full digit
+                 * re-verification) on every datetime value */
+                return teptris_parse_datetime(ps, out);
+            }
             const char *start = ps->p;
             uint64_t mag = 0;
             while (ps->p < ps->end && (unsigned char)*ps->p >= '0' &&
@@ -879,6 +885,9 @@ teptris_status teptris_parse_value_fast(teptris_parser *ps, teptris_node **out)
                 return TEPTRIS_OK;
             }
             ps->p = start;
+            /* float/radix/underscore shapes: parse_number directly —
+             * parse_value would redo the switch + lookahead first */
+            return teptris_parse_number(ps, out, false);
         }
     }
     return teptris_parse_value(ps, out);
