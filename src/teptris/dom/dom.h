@@ -16,6 +16,7 @@
 typedef struct teptris_entry {
     teptris_view key;    /* view into the parse input */
     teptris_node *value;
+    uint64_t hash;       /* cached: index rebuilds never re-hash keys */
 } teptris_entry;
 
 struct teptris_node {
@@ -70,6 +71,13 @@ uint64_t teptris_dom_key_hash(const char *key, size_t key_len);
 teptris_entry *teptris_dom_table_find_h(const teptris_node *table,
                                         const char *key, size_t key_len,
                                         uint64_t *hash_out);
+
+/* Probe with a PRECOMPUTED hash (the parser computes it while
+ * scanning the key bytes). Returns NULL when absent — including the
+ * index-less (empty) case, where no duplicate can exist. */
+teptris_entry *teptris_dom_table_find_probe(const teptris_node *table,
+                                            uint64_t hash, const char *key,
+                                            size_t key_len);
 
 /* Insert; the key must not already exist (caller checks). */
 teptris_status teptris_dom_table_insert(teptris_document *doc, teptris_node *table,

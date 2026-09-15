@@ -64,9 +64,7 @@ static teptris_status index_rebuild(teptris_document *doc, teptris_node *t,
     t->as.table.index = idx;
     t->as.table.idx_cap = new_cap;
     for (size_t i = 0; i < t->as.table.len; i++) {
-        index_insert(t, (uint32_t)i,
-                     teptris_dom_key_hash(t->as.table.entries[i].key.ptr,
-                                          t->as.table.entries[i].key.len));
+        index_insert(t, (uint32_t)i, t->as.table.entries[i].hash);
     }
     return TEPTRIS_OK;
 }
@@ -145,9 +143,31 @@ teptris_status teptris_dom_table_insert_h(teptris_document *doc, teptris_node *t
 
     t->as.table.entries[t->as.table.len].key = key;
     t->as.table.entries[t->as.table.len].value = value;
+    t->as.table.entries[t->as.table.len].hash = hash;
     index_insert(t, (uint32_t)t->as.table.len, hash);
     t->as.table.len++;
     return TEPTRIS_OK;
+}
+
+teptris_entry *teptris_dom_table_find_probe(const teptris_node *t,
+                                            uint64_t hash, const char *key,
+                                            size_t key_len)
+{
+    if (t == NULL || t->kind != TEPTRIS_TABLE || t->as.table.idx_cap == 0) {
+        return NULL; /* empty: no duplicate possible */
+    }
+    size_t mask = t->as.table.idx_cap - 1;
+    size_t slot = (size_t)hash & mask;
+    while (t->as.table.index[slot] != 0) {
+        uint32_t ei = t->as.table.index[slot] - 1;
+        const teptris_entry *e = &t->as.table.entries[ei];
+        if (e->hash == hash && e->key.len == key_len &&
+            memcmp(e->key.ptr, key, key_len) == 0) {
+            return (teptris_entry *)e;
+        }
+        slot = (slot + 1) & mask;
+    }
+    return NULL;
 }
 
 teptris_status teptris_dom_array_push(teptris_document *doc, teptris_node *a,

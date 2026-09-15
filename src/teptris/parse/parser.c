@@ -446,9 +446,16 @@ static bool try_keyval_fast(teptris_parser *ps, teptris_node *tbl,
     if (start >= ps->end || !tep_is_barekey((unsigned char)*start)) {
         return false;
     }
-    while (ps->p < ps->end && tep_is_barekey((unsigned char)*ps->p)) {
-        ps->p++;
+    /* FNV-1a fused into the scan: the bytes are already loaded here,
+     * so the hash comes free instead of a second pass in find */
+    uint64_t h = 1469598103934665603ULL;
+    const char *kend = ps->p;
+    while (kend < ps->end && tep_is_barekey((unsigned char)*kend)) {
+        h ^= (unsigned char)*kend;
+        h *= 1099511628211ULL;
+        kend++;
     }
+    ps->p = kend;
     /* a '.' or quote means dotted/quoted: general path (rewind) */
     while (ps->p < ps->end && (*ps->p == ' ' || *ps->p == '\t')) {
         ps->p++;
@@ -461,10 +468,6 @@ static bool try_keyval_fast(teptris_parser *ps, teptris_node *tbl,
     while (ps->p < ps->end && (*ps->p == ' ' || *ps->p == '\t')) {
         ps->p++;
     }
-    const char *kend = start;
-    while (kend < ps->end && tep_is_barekey((unsigned char)*kend)) {
-        kend++;
-    }
     teptris_view key = {start, (size_t)(kend - start)};
 
     teptris_node *value;
@@ -473,8 +476,7 @@ static bool try_keyval_fast(teptris_parser *ps, teptris_node *tbl,
         *st_out = st;
         return true;
     }
-    uint64_t h;
-    if (teptris_dom_table_find_h(tbl, key.ptr, key.len, &h) != NULL) {
+    if (teptris_dom_table_find_probe(tbl, h, key.ptr, key.len) != NULL) {
         *st_out = tep_fail_at(ps, NULL, TEPTRIS_ERR_SEMANTIC,
                               "duplicate key '%.*s'", (int)key.len, key.ptr);
         return true;
