@@ -270,6 +270,37 @@ Ratio floor vs best competitor: mixed 3.41x; every shape >= 3.4x.
 Gates: 67/67 Release+ASan, toml-test 714/714 — this is the first
 PR gated by teptris's own CI (green before merge).
 
+## 4x-push era (2026-09-15, v0.1.12)
+
+Mandate raised to 4x on every shape. Landed (3-run A/B medians):
+
+- teptris_arena_fast_alloc: the per-value bump is 3 instructions
+  inline (extern call before)
+- parse_value_fast (out-of-line): plain ints inline (Horner + node);
+  datetimes route DIRECTLY to parse_datetime (the double lookahead
+  was a 0.91x regression on datetime_heavy, caught in A/B); float
+  shapes route directly to parse_number
+- parse_array: direct items[len++] push when capacity remains
+- parse_key_path: caller-owned 8-slot stack buffer (dotted paths
+  of <=8 segments never allocate)
+
+array_heavy 1.22x -> 4.22x (468 MB/s). Six shapes >= 4.2x: array
+4.22, datetime 4.91, float 4.95, int 5.24, string 5.19 (+ table
+3.93, deep 3.92 at the margin).
+
+Measured and REVERTED (both instructive losses):
+- inline parse_value_fast in the keyval/array loops: mixed 0.92x
+  (loop footprint bloat) -> moved out-of-line, regressions gone
+- fused single-pass plain-body SIMD kernel: scalar_string 0.77x —
+  glibc memchr beats the hand kernel even fused (v0.1.7 lesson)
+
+Remaining sub-4x: mixed 3.50x, cargo 3.65x, deep 3.92x, table
+3.93x. These are short-string + container-churn dominated (mixed =
+3000 records of strings/floats/inline-tables/bools). The identified
+next lever is PGO — the dispatch is branch-mispredict heavy and
+boundary work is exhausted (three rounds of measured micro-losses
+on attempted further fusion).
+
 ## Commands
 
 ```sh
