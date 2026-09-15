@@ -12,9 +12,16 @@
 set -euo pipefail
 src=$1; build=$2; corpus=$3; shift 3
 
-common=(-DCMAKE_BUILD_TYPE=Release -DTEPTRIS_BUILD_STATIC=ON
-        -DTEPTRIS_BUILD_SHARED=OFF -DBUILD_TESTING=OFF
-        -DTEPTRIS_BUILD_CLI=ON -DTEPTRIS_ENABLE_LTO=OFF
+# TEPTRIS_PGO_SHARED=1 builds the shared lib instead of the static
+# archive (wheel pipelines bundle the dylib/DLL chain). TEPTRIS_PGO_LTO=1
+# keeps Release-default LTO on (the measured PGO+LTO config; ruby keeps
+# it off for the mkmf link).
+lib_kind=(-DTEPTRIS_BUILD_STATIC=ON -DTEPTRIS_BUILD_SHARED=OFF)
+[ "${TEPTRIS_PGO_SHARED:-0}" = "1" ] && lib_kind=(-DTEPTRIS_BUILD_STATIC=OFF -DTEPTRIS_BUILD_SHARED=ON)
+lto=-DTEPTRIS_ENABLE_LTO=OFF
+[ "${TEPTRIS_PGO_LTO:-0}" = "1" ] && lto=-DTEPTRIS_ENABLE_LTO=ON
+common=(-DCMAKE_BUILD_TYPE=Release "${lib_kind[@]}" -DBUILD_TESTING=OFF
+        -DTEPTRIS_BUILD_CLI=ON "$lto"
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON)
 
 # CMAKE_C_COMPILER_ID is not in the cache; it lives in the compiler info file
