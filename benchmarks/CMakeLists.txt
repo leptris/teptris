@@ -59,6 +59,9 @@ endif()
 configure_file(bench_paths.h.in bench_paths.h @ONLY)
 
 add_executable(bench_parse ${BENCH_SOURCES})
+
+add_executable(bench_emit bench_emit.cpp)
+target_link_libraries(bench_emit PRIVATE teptris)
 # ThinLTO consumes the profile at link time: the teptris objects riding
 # into bench_parse need -fprofile-use on this link too.
 if(TEPTRIS_PROFILE_USE)
