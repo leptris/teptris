@@ -364,6 +364,21 @@ per-line parsing, not table management. Reverted. Measuring this
 class of change on this machine is exhausted; revisit on quieter
 hardware or with a per-line/allocation-profile-driven lever.
 
+## Plain-string node+payload batching (2026-09-16, NOT shipped)
+
+Fifth variant, outside table management: one arena allocation per
+plain string (node + NUL-terminated payload in a single block,
+dom_new_string_copy). Gates passed (67/67, 714/714, retrained
+profile). Three interleaved reps-10 rounds under heavy ambient load
+(machine peaked at 141): absolute MB/s flat-or-down on every shape —
+mixed -2.7% (390 -> 380), cargo -3.0%, table -3.6%, deep -2.6%.
+Reverted. Five of five allocation/lookup micro-levers now measured
+negative-or-neutral on mixed while the machine's scatter exceeds
+the effects; the shape's remaining cost is the per-record parse
+line itself (dispatch + line advance + ws scan), which no
+allocation-side change touches. This lever class is closed on this
+hardware.
+
 ## Commands
 
 ```sh
