@@ -350,10 +350,28 @@ static void emit_value(ebuf *b, const teptris_node *n)
     case TEPTRIS_STRING:
         emit_string_value(b, n->as.str);
         break;
-    case TEPTRIS_INTEGER:
-        snprintf(tmp, sizeof(tmp), "%" PRId64, n->as.i);
-        eb_str(b, tmp);
+    case TEPTRIS_INTEGER: {
+        /* direct writer: snprintf costs a format-parse + locale check
+         * per number and dominates int-heavy emits */
+        uint64_t mag;
+        bool neg = n->as.i < 0;
+        if (neg) {
+            mag = (uint64_t)(-(n->as.i + 1)) + 1; /* INT64_MIN safe */
+        } else {
+            mag = (uint64_t)n->as.i;
+        }
+        char *q = tmp + sizeof(tmp);
+        *--q = '\0';
+        do {
+            *--q = (char)('0' + (mag % 10));
+            mag /= 10;
+        } while (mag != 0);
+        if (neg) {
+            *--q = '-';
+        }
+        eb_put(b, q, (size_t)(tmp + sizeof(tmp) - 1 - q));
         break;
+    }
     case TEPTRIS_FLOAT:
         emit_float(b, n->as.f);
         break;
