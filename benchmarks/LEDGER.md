@@ -322,6 +322,34 @@ over the corpus trains parse + emit):
 
 CMake: TEPTRIS_PROFILE_TRAIN (stage 1) / TEPTRIS_PROFILE_USE (stage
 2, teptris targets only so bench competitors stay flag-free).
+## Hash-path investigation (2026-09-16, NOT shipped)
+
+Post-PGO, the remaining sub-4x shapes (mixed, cargo) pointed at the
+table hash path (find_probe 27M + insert_h 25M + find_h 13M block
+hits). Two changes were built and measured across five A/B sessions
+(interleaved, retrained profiles, reps 20x3 medians):
+
+1. tiny-table scan (TABLE_TINY=8: no hash index for <= 8 entries,
+   linear scan of the entries array) — targets mixed's 3000 inline
+   tables and cargo's ~3000 dep sub-tables;
+2. fused probe+insert (find_probe reports the empty slot; insert
+   reuses it — one walk instead of two). The fused helper must be
+   header-inline: as a cross-TU call the extra param pushed find_probe
+   past the LTO inline threshold and cost 3-5% everywhere.
+
+Final medians vs the PGO baseline: deep +2.4% (3.98 -> 4.10), cargo
++1-3% (3.71 -> 3.80), mixed -3.6% (424 -> 408 MB/s; ratio 4.00 -> 3.94),
+float/array -4-5%. The gains sit at the machine noise floor (+-
+4%) and one TARGET shape regresses — reverted. Lessons: (a) mixed's
+ratio flips 3.87-4.24 across sessions; single-session sub-5% effects
+on this hardware are unresolvable; (b) stale-profile A/B lies — a
+profile trained on old code inverts PGO gains on new code (retrain
+before believing any delta); (c) grep -c exits 1 on zero matches
+and kills && chains. Next levers for mixed/cargo: batch the
+per-inline-table arena allocations (node + 8-entry array in one
+block), or attack finish_line/parse_key_path per-record fixed
+costs.
+
 ## Commands
 
 ```sh
