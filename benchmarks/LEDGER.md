@@ -424,6 +424,25 @@ DELTAS (sub-1% scatter) and for tracking relative change, not as
 absolute mandate numbers. No x86-specific teptris work is warranted
 by this data.
 
+## Emit i64 writer — SHIPPED v0.1.16 (2026-09-17)
+
+First positive engine change since v0.1.12, found by the emit
+bench: every integer emit went through snprintf (format-parse +
+locale check per number) — array_heavy emitted at 155 MB/s, the
+worst shape. Replaced with a direct backwards writer into the
+existing tmp buffer (INT64_MIN-safe, identical decimal output).
+
+CI lane verdict (ubuntu, tight rounds): array emit +181%
+(205 -> 576 MB/s), scalar_int +75% (301 -> 527), deep +24%,
+mixed +9%; cargo/datetime/float/string neutral (99.2-100.2%).
+Parse confirmed neutral on both runner cells (an ubuntu parse dip
+of -7% in one run did not reproduce on macos or in round scatter —
+single-run layout noise; when a delta contradicts a second cell,
+trust the reproducing cell). Local darwin: array +220%, int +96%.
+
+Cascade: v0.1.16 -> teptris-ruby 0.2.26 (8 platforms, engine
+verified 0.1.16 on rubygems) -> teptris-py 0.2.9.
+
 ## Commands
 
 ```sh
