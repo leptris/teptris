@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   ab:
-    name: A/B ${{ matrix.os }} (ratios)
+    name: A/B ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
