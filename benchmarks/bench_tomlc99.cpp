@@ -1,4 +1,5 @@
 #include "bench_common.hpp"
+#include <cstring>
 #include "bench_paths.h"
 
 #ifdef HAVE_TOMLC99
