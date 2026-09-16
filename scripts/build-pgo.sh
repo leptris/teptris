@@ -35,7 +35,11 @@ if [ -z "$cc" ]; then
 fi
 case "$cc" in
     Clang|AppleClang|GNU) ;;
-    *) echo "build-pgo.sh: PGO not wired for compiler '$cc' (MSVC pending); use a plain build" >&2; exit 1 ;;
+    MSVC)
+        echo "build-pgo.sh: MSVC PGO is orchestrated by the py workflow's cmd" >&2
+        echo "steps (vcvars + pgomgr live there), not this bash script" >&2
+        exit 1 ;;
+    *) echo "build-pgo.sh: PGO not wired for compiler '$cc'; use a plain build" >&2; exit 1 ;;
 esac
 
 cmake --build "$build" -j

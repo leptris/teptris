@@ -50,22 +50,34 @@ endif()
 # TRAIN: compile-only instrumentation plus an INTERFACE link flag so
 # consumers (the CLI trainer, harnesses) pull the profile runtime.
 # USE: teptris targets only — benchmark competitors stay flag-free.
+# MSVC: /GL + /GENPROFILE then /USEPROFILE; the .pgd rides beside the
+# link output, so USE ignores the path value (pass ON).
 if(TEPTRIS_PROFILE_USE)
     foreach(tgt teptris teptris_shared)
         if(TARGET ${tgt})
-            target_compile_options(${tgt} PRIVATE
-                -fprofile-use=${TEPTRIS_PROFILE_USE} -fprofile-correction)
+            if(MSVC)
+                target_compile_options(${tgt} PRIVATE /GL)
+                target_link_options(${tgt} PRIVATE /LTCG /USEPROFILE)
+            else()
+                target_compile_options(${tgt} PRIVATE
+                    -fprofile-use=${TEPTRIS_PROFILE_USE} -fprofile-correction)
+            endif()
         endif()
     endforeach()
 endif()
 if(TEPTRIS_PROFILE_TRAIN)
     foreach(tgt teptris teptris_shared)
         if(TARGET ${tgt})
-            target_compile_options(${tgt} PRIVATE -fprofile-generate)
-            # PRIVATE: the shared dylib's own link needs the runtime too
-            # (the static archive never links itself)
-            target_link_options(${tgt} PRIVATE -fprofile-generate)
-            target_link_options(${tgt} INTERFACE -fprofile-generate)
+            if(MSVC)
+                target_compile_options(${tgt} PRIVATE /GL)
+                target_link_options(${tgt} PRIVATE /LTCG /GENPROFILE)
+            else()
+                target_compile_options(${tgt} PRIVATE -fprofile-generate)
+                # PRIVATE: the shared dylib's own link needs the runtime too
+                # (the static archive never links itself)
+                target_link_options(${tgt} PRIVATE -fprofile-generate)
+                target_link_options(${tgt} INTERFACE -fprofile-generate)
+            endif()
         endif()
     endforeach()
 endif()
