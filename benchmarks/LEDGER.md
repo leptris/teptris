@@ -350,6 +350,20 @@ per-inline-table arena allocations (node + 8-entry array in one
 block), or attack finish_line/parse_key_path per-record fixed
 costs.
 
+## Seeded inline tables (2026-09-16, NOT shipped)
+
+Fourth variant: one arena block per inline table (node + initial
+8-entry array, single bump + single zeroing pass). Gates passed
+(67/67, 714/714). Six interleaved reps-10 rounds: deep +6.7%
+(3.96 -> 4.11), mixed -2.6% (399 -> 389 MB/s, 3.99 -> 3.94) with
+B-round scatter 48 MB/s, floor 3.79 -> 3.80. Mixed has now measured
+negative-or-neutral across FOUR table-management variants (tiny
+scan, fused probe, both, seeded allocs) while its scatter exceeds
+every effect — the shape's cost lives in short-string values and
+per-line parsing, not table management. Reverted. Measuring this
+class of change on this machine is exhausted; revisit on quieter
+hardware or with a per-line/allocation-profile-driven lever.
+
 ## Commands
 
 ```sh
