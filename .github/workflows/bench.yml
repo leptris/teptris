@@ -9,13 +9,15 @@ name: bench
 on:
   pull_request:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 permissions:
   contents: read
 
 jobs:
   ab:
-    name: A/B ${{ matrix.os }}
+    name: A/B ${{ matrix.os }} (ratios)
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -37,10 +39,12 @@ jobs:
         with:
           python-version: '3.12'
 
-      # reference libraries at the ledger pins, so the lane reports the
-      # 4x-mandate ratios, not only A/B deltas (benchmarks/CMakeLists
-      # picks up whatever exists under TEPTRIS_EXTERNAL_DIR)
+      # reference libraries at the ledger pins, so ratio columns are
+      # populated — PRs get the fast teptris-only A/B; pushes to main
+      # (and dispatches) also fetch competitors for full ratio tables
+      # (the five external builds add ~25 minutes, too heavy per-PR)
       - name: Fetch pinned reference libraries
+        if: github.event_name != 'pull_request'
         run: |
           mkdir -p external
           git clone -q https://github.com/cktan/tomlc99.git external/tomlc99
