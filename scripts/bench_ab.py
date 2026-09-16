@@ -20,8 +20,11 @@ def agg(data, i):
         f = d["files"][i]
         t = f["libs"]["teptris"]["mb_per_s"]
         vals.append(t)
-        rats.append(t / max(x["mb_per_s"] for k, x in f["libs"].items()
-                            if k != "teptris"))
+        # competitor libraries are external checkouts (dev machine only);
+        # CI runs teptris-only and the ratio becomes n/a — the A/B delta
+        # is the lane's product, ratios track the 4x mandate locally
+        best = [x["mb_per_s"] for k, x in f["libs"].items() if k != "teptris"]
+        rats.append(t / max(best) if best else float("nan"))
     return vals, rats
 
 
@@ -37,8 +40,10 @@ def main():
         av, ar = agg(A, i)
         bv, br = agg(B, i)
         ma, mb = statistics.median(av), statistics.median(bv)
-        print(f"{s:<20} {ma:6.0f} {mb:6.0f} {mb / ma:6.1%}  "
-              f"{statistics.median(ar):5.2f} {statistics.median(br):5.2f}")
+        ra = statistics.median(ar)
+        rb = statistics.median(br)
+        rtxt = f"{ra:5.2f} {rb:5.2f}" if ra == ra and rb == rb else "  n/a   n/a"
+        print(f"{s:<20} {ma:6.0f} {mb:6.0f} {mb / ma:6.1%}  {rtxt}")
         print(f"{'':>20} A={','.join(f'{v:.0f}' for v in av)}"
               f"  B={','.join(f'{v:.0f}' for v in bv)}")
     print("\n(rA/rB = teptris vs best competitor, median across rounds;")
