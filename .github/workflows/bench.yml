@@ -37,11 +37,27 @@ jobs:
         with:
           python-version: '3.12'
 
+      # reference libraries at the ledger pins, so the lane reports the
+      # 4x-mandate ratios, not only A/B deltas (benchmarks/CMakeLists
+      # picks up whatever exists under TEPTRIS_EXTERNAL_DIR)
+      - name: Fetch pinned reference libraries
+        run: |
+          mkdir -p external
+          git clone -q https://github.com/cktan/tomlc99.git external/tomlc99
+          git -C external/tomlc99 checkout -q 29076df
+          git clone -q --depth 1 -b v4.2.0 https://github.com/ToruNiina/toml11.git external/toml11
+          git clone -q --depth 1 -b v3.4.0 https://github.com/marzer/tomlplusplus.git external/tomlplusplus
+          git clone -q https://github.com/cktan/tomlc17.git external/tomlc17
+          git -C external/tomlc17 checkout -q d7e91db
+          git clone -q --depth 1 -b v0.1.1 https://github.com/skystrife/cpptoml.git external/cpptoml
+          ls external
+
       - name: Build both trees
         run: |
           for d in base head; do
             cmake -B $d/build -S $d -DCMAKE_BUILD_TYPE=Release \
-              -DTEPTRIS_BUILD_BENCHMARKS=ON -DBUILD_TESTING=OFF
+              -DTEPTRIS_BUILD_BENCHMARKS=ON -DBUILD_TESTING=OFF \
+              -DTEPTRIS_EXTERNAL_DIR=$PWD/external
             cmake --build $d/build -j
           done
 
