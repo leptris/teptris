@@ -379,6 +379,25 @@ line itself (dispatch + line advance + ws scan), which no
 allocation-side change touches. This lever class is closed on this
 hardware.
 
+## CI bench lane + fused line finish (2026-09-16, lane shipped, change reverted)
+
+The bench lane (.github/workflows/bench.yml + scripts/bench_ab.py)
+gives every PR a same-runner interleaved A/B: base and head build in
+one job, three reps-10 rounds. Self-validation: engine-identical
+trees measured 99.8-100.7% (sub-1% noise on ubuntu) — resolving the
+2-3% effects the dev machine's +/-4-6% scatter never could.
+
+First measured candidate: fusing the line finish (ws/comment/newline
+with direct pointer math) into try_keyval_fast, general path
+preserved via a p==bol early-return. Gates: 67/67, 714/714 (1.1),
+702/9 (1.0, byte-identical to baseline — the 9 are the deliberately
+accepted 1.1 constructs). Lane verdict (ubuntu, tight rounds):
+mixed -1.5% (468 -> 461), table_heavy -10%, array/string negative —
+the added tail bloats the hottest function and costs more than the
+call chain it replaced (the same inline-bloat failure measured on
+2026-09-15). REVERTED. Note: mixed's floor is not finish_line; the
+next candidates should SHRINK the hot path, not extend it.
+
 ## Commands
 
 ```sh
