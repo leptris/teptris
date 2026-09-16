@@ -57,10 +57,11 @@ jobs:
 
       - name: Report
         run: |
+          python3 head/scripts/bench_ab.py a1.json a2.json a3.json b1.json b2.json b3.json | tee report.txt
           {
             echo "## bench A/B (${{ matrix.os }})"
             echo '```'
-            python3 head/scripts/bench_ab.py a1.json a2.json a3.json b1.json b2.json b3.json
+            cat report.txt
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
