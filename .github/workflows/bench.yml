@@ -68,22 +68,28 @@ jobs:
       - name: Generate corpus
         run: python3 head/scripts/gen_bench_corpus.py corpus
 
-      - name: Interleaved rounds (A B x3)
+      - name: Interleaved rounds (A B x3, parse + emit)
         run: |
           for r in 1 2 3; do
             ./base/build/benchmarks/bench_parse corpus 1 10 > a$r.json
             ./head/build/benchmarks/bench_parse corpus 1 10 > b$r.json
+            ./base/build/benchmarks/bench_emit corpus 1 10 > ae$r.json
+            ./head/build/benchmarks/bench_emit corpus 1 10 > be$r.json
           done
 
       - name: Report
         run: |
-          python3 head/scripts/bench_ab.py a1.json a2.json a3.json b1.json b2.json b3.json | tee report.txt
           {
             echo "## bench A/B (${{ matrix.os }})"
+            echo "### parse"
             echo '```'
-            cat report.txt
+            python3 head/scripts/bench_ab.py a1.json a2.json a3.json b1.json b2.json b3.json
             echo '```'
-          } >> "$GITHUB_STEP_SUMMARY"
+            echo "### emit"
+            echo '```'
+            python3 head/scripts/bench_ab.py ae1.json ae2.json ae3.json be1.json be2.json be3.json
+            echo '```'
+          } | tee report.txt >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:
