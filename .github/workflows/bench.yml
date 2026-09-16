@@ -1,0 +1,70 @@
+name: bench
+
+# Interleaved A/B on one runner: base (target branch) vs head (PR merge
+# or dispatch ref), three reps-10 rounds each, same machine, same
+# conditions — the deterministic-load measurement the local hardware
+# cannot provide (ledger: mixed/cargo effects sit inside its ±4-6%
+# scatter). Results land in the step summary; JSONs are attached.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ab:
+    name: A/B ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - name: Checkout head (merge ref)
+        uses: actions/checkout@v4
+        with:
+          path: head
+
+      - name: Checkout base
+        uses: actions/checkout@v4
+        with:
+          path: base
+          ref: ${{ github.event.pull_request.base.sha || 'main' }}
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build both trees
+        run: |
+          for d in base head; do
+            cmake -B $d/build -S $d -DCMAKE_BUILD_TYPE=Release \
+              -DTEPTRIS_BUILD_BENCHMARKS=ON -DBUILD_TESTING=OFF
+            cmake --build $d/build -j
+          done
+
+      - name: Generate corpus
+        run: python3 head/scripts/gen_bench_corpus.py corpus
+
+      - name: Interleaved rounds (A B x3)
+        run: |
+          for r in 1 2 3; do
+            ./base/build/benchmarks/bench_parse corpus 1 10 > a$r.json
+            ./head/build/benchmarks/bench_parse corpus 1 10 > b$r.json
+          done
+
+      - name: Report
+        run: |
+          {
+            echo "## bench A/B (${{ matrix.os }})"
+            echo '```'
+            python3 head/scripts/bench_ab.py a1.json a2.json a3.json b1.json b2.json b3.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bench-${{ matrix.os }}-${{ github.run_id }}
+          path: '*.json'
