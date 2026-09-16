@@ -410,14 +410,19 @@ libraries built by the same compiler:
   array 6.4x   int 3.6x   float 3.3x   mixed 3.3x   deep 3.2x
   string 3.1x  table 2.9x cargo 2.4x   datetime 2.2x
 
-DIVERGENCE: the historical ledger ratios (floor ~3.7, mixed/cargo
-sub-4) are darwin/arm64 numbers. On linux-x64 the best competitor
-is materially stronger on datetime/cargo/table — the 4x mandate is
-platform-dependent and further from met on linux for those shapes.
-This table is the honest linux baseline; the darwin numbers above
-remain the darwin reference. Cross-platform ratio work (datetime on
-x86 glibc first) is the newly-named lever, to be attacked with the
-same lane-verdict discipline.
+DIVERGENCE, CORRECTED (same day, per-lib JSON analysis): the ratio
+drop is NOT an x86 defect in teptris. Per-lib numbers show teptris
+is CPU-bound and scales with the chip (datetime 490 MB/s on the
+M-series vs 212 on the shared cloud core) while cpptoml — the only
+fast competitor on linux (tomlc99 runs ok:true but crawls on some
+shapes as-built; tomlc17/toml11 are non-factors there) — is
+allocation-bound and flat (~98 MB/s everywhere). Ratios therefore
+compress on any slower CPU BY CONSTRUCTION: 212/98 = 2.2x on the
+runner vs 490/97 = 5.0x on the dev chip, same code. The 4x mandate
+remands darwin/dev-hardware ratios; CI ratios are valid for A/B
+DELTAS (sub-1% scatter) and for tracking relative change, not as
+absolute mandate numbers. No x86-specific teptris work is warranted
+by this data.
 
 ## Commands
 
