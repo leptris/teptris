@@ -127,6 +127,11 @@ bool tep_at_eol(const teptris_parser *ps)
 
 teptris_status tep_finish_line(teptris_parser *ps)
 {
+    /* a fast path may have closed the line itself (cursor reset to the
+     * new line start): nothing left to finish */
+    if (ps->p == ps->bol) {
+        return TEPTRIS_OK;
+    }
     teptris_status st = tep_skip_ws(ps);
     if (st != TEPTRIS_OK) {
         return st;
@@ -483,6 +488,51 @@ static bool try_keyval_fast(teptris_parser *ps, teptris_node *tbl,
         return true;
     }
     *st_out = teptris_dom_table_insert_h(ps->doc, tbl, key, h, value);
+    if (*st_out != TEPTRIS_OK) {
+        return true;
+    }
+    /* Fused line finish: trailing ws/comment scan and the newline
+     * consume happen with direct pointer math (no tep_adv per-byte
+     * line tracking), updating line/bol once. Anything irregular —
+     * junk after the value, a lone \r in a comment, EOF — falls back
+     * to the general tep_finish_line for the exact error. */
+    {
+        const char *q = ps->p;
+        while (q < ps->end && (*q == ' ' || *q == '\t')) {
+            q++;
+        }
+        if (q < ps->end && *q == '#') {
+            const char *cs = q;
+            while (q < ps->end) {
+                if (*q == '\n') {
+                    break;
+                }
+                if (*q == '\r' && (q + 1 >= ps->end || q[1] != '\n')) {
+                    q = cs; /* lone CR in comment: general path errors */
+                    goto fallback;
+                }
+                q++;
+            }
+        }
+        if (q < ps->end && *q == '\n') {
+            ps->line++;
+            ps->p = q + 1;
+            ps->bol = ps->p;
+            return true;
+        }
+        if (q + 1 < ps->end && q[0] == '\r' && q[1] == '\n') {
+            ps->line++;
+            ps->p = q + 2;
+            ps->bol = ps->p;
+            return true;
+        }
+        if (q >= ps->end) {
+            ps->p = ps->end;
+            return true;
+        }
+    fallback:
+        ps->p = q;
+    }
     return true;
 }
 
