@@ -398,6 +398,27 @@ call chain it replaced (the same inline-bloat failure measured on
 2026-09-15). REVERTED. Note: mixed's floor is not finish_line; the
 next candidates should SHRINK the hot path, not extend it.
 
+## CI ratio baseline (2026-09-16, linux x86_64 gcc — platform divergence)
+
+The bench lane now builds the five pinned reference libraries
+(tomlc99 29076df, toml11 v4.2.0, tomlplusplus v3.4.0, tomlc17
+d7e91db, cpptoml v0.1.1) on the runner, so every PR reports
+teptris-vs-best ratios on deterministic hardware (sub-1% round
+scatter on ubuntu). First baseline, linux x86_64 gcc — all
+libraries built by the same compiler:
+
+  array 6.4x   int 3.6x   float 3.3x   mixed 3.3x   deep 3.2x
+  string 3.1x  table 2.9x cargo 2.4x   datetime 2.2x
+
+DIVERGENCE: the historical ledger ratios (floor ~3.7, mixed/cargo
+sub-4) are darwin/arm64 numbers. On linux-x64 the best competitor
+is materially stronger on datetime/cargo/table — the 4x mandate is
+platform-dependent and further from met on linux for those shapes.
+This table is the honest linux baseline; the darwin numbers above
+remain the darwin reference. Cross-platform ratio work (datetime on
+x86 glibc first) is the newly-named lever, to be attacked with the
+same lane-verdict discipline.
+
 ## Commands
 
 ```sh
