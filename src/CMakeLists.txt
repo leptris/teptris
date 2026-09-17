@@ -12,6 +12,7 @@ set(TEPTRIS_SOURCES
     teptris/dom/dom.c
     teptris/build.c
     teptris/parse/parser.c
+    teptris/plan/plan.c
     teptris/parse/keys.c
     teptris/parse/scalars.c
     teptris/parse/datetime.c
