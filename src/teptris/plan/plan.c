@@ -32,7 +32,7 @@ struct rnode {
 };
 
 struct teptris_plan_result {
-    rnode *root;
+    const rnode *root;
 };
 
 /* ------------------------------------------------------------- build -- */
@@ -229,7 +229,8 @@ teptris_plan_result *teptris_plan_walk(const teptris_plan *plan,
 void teptris_plan_result_free(teptris_plan_result *result)
 {
     if (result != NULL) {
-        rnode_free(result->root);
+        /* sole owner: reclaim the const view to destroy the tree */
+        rnode_free((rnode *)result->root);
         free(result);
     }
 }
