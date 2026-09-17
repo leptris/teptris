@@ -55,8 +55,10 @@ teptris_plan *teptris_plan_build(const teptris_plan_spec *spec,
     p->row_total = spec->plan_first_row[spec->plan_count];
     p->first_row =
         malloc((spec->plan_count + 1) * sizeof(*p->first_row));
+    /* calloc, not malloc: a mid-loop rejection frees every row name,
+     * and uninitialized pointers must read as NULL (ASan caught this) */
     p->rows = p->row_total
-                  ? malloc(p->row_total * sizeof(*p->rows))
+                  ? calloc(p->row_total, sizeof(*p->rows))
                   : NULL;
     if (p->first_row == NULL || (p->row_total > 0 && p->rows == NULL)) {
         teptris_plan_free(p);
