@@ -717,22 +717,26 @@ teptris_status teptris_parser_run(teptris_document *doc, const char *data,
     }
     ps.cur = doc->root;
 
+    /* The line skeleton is inline: ws skip, newline advance, and the
+     * post-value finish are the per-record fixed cost, and each was a
+     * call (skip_ws x2, adv, finish_line). Comments and CR oddities
+     * stay out-of-line; everything else here is straight-line code. */
     for (;;) {
-        st = tep_skip_ws(&ps);
-        if (st != TEPTRIS_OK) {
-            return st;
+        while (ps.p < ps.end &&
+               (*ps.p == ' ' || *ps.p == '\t')) {
+            ps.p++;
         }
         if (ps.p >= ps.end) {
             break;
         }
         unsigned char c = (unsigned char)*ps.p;
         if (c == '\n') {
-            tep_adv(&ps, 1);
+            ps.p++;
             continue;
         }
         if (c == '\r') {
             if (ps.p + 1 < ps.end && ps.p[1] == '\n') {
-                tep_adv(&ps, 2);
+                ps.p += 2;
                 continue;
             }
             return tep_fail_at(&ps, NULL, TEPTRIS_ERR_SYNTAX,
@@ -749,10 +753,31 @@ teptris_status teptris_parser_run(teptris_document *doc, const char *data,
         if (st != TEPTRIS_OK) {
             return st;
         }
-        st = tep_finish_line(&ps);
-        if (st != TEPTRIS_OK) {
-            return st;
+        /* inline finish_line: ws, then \n / \r\n / comment / end */
+        while (ps.p < ps.end &&
+               (*ps.p == ' ' || *ps.p == '\t')) {
+            ps.p++;
         }
+        if (ps.p >= ps.end) {
+            break;
+        }
+        if (*ps.p == '\n') {
+            ps.p++;
+            continue;
+        }
+        if (*ps.p == '#') {
+            st = skip_comment(&ps);
+            if (st != TEPTRIS_OK) {
+                return st;
+            }
+            continue;
+        }
+        if (*ps.p == '\r' && ps.p + 1 < ps.end && ps.p[1] == '\n') {
+            ps.p += 2;
+            continue;
+        }
+        return tep_fail_at(&ps, NULL, TEPTRIS_ERR_SYNTAX,
+                           "expected newline after value");
     }
     return TEPTRIS_OK;
 }
