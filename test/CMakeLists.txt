@@ -26,6 +26,7 @@ add_executable(test_unit
     unit/test_corpus.cpp
     unit/test_builder.cpp
     unit/test_flatten.cpp
+    unit/test_plan.cpp
 )
 target_link_libraries(test_unit PRIVATE teptris GTest::gtest_main)
 target_include_directories(test_unit PRIVATE ${CMAKE_SOURCE_DIR}/src)
