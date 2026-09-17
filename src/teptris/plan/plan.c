@@ -292,6 +292,20 @@ uint8_t teptris_plan_result_array_kind_at(const teptris_plan_result *r,
     return c->kids[i]->kind;
 }
 
+/* The TOML value kind of an ARRAY element (drives scalar dispatch). */
+uint8_t teptris_plan_result_array_value_kind_at(const teptris_plan_result *r,
+                                                uint32_t row, uint32_t i)
+{
+    const rnode *c = child_of(r, row);
+    if (c == NULL || c->kind != TEPTRIS_PLAN_ARRAY || i >= c->n) {
+        return (uint8_t)TEPTRIS_STRING;
+    }
+    const rnode *k = c->kids[i];
+    return (k->kind == TEPTRIS_PLAN_SCALAR && k->src != NULL)
+               ? (uint8_t)teptris_node_kind(k->src)
+               : (uint8_t)TEPTRIS_STRING;
+}
+
 teptris_status teptris_plan_result_array_string_at(const teptris_plan_result *r,
                                                    uint32_t row, uint32_t i,
                                                    teptris_view *out)

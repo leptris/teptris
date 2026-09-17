@@ -73,6 +73,8 @@ TEPTRIS_API teptris_status teptris_plan_result_datetime_at(
     const teptris_plan_result *r, uint32_t row, teptris_datetime *out);
 TEPTRIS_API uint32_t teptris_plan_result_array_len_at(
     const teptris_plan_result *r, uint32_t row);
+TEPTRIS_API uint8_t teptris_plan_result_array_value_kind_at(
+    const teptris_plan_result *r, uint32_t row, uint32_t i);
 TEPTRIS_API uint8_t teptris_plan_result_array_kind_at(
     const teptris_plan_result *r, uint32_t row, uint32_t i);
 TEPTRIS_API teptris_status teptris_plan_result_array_string_at(
