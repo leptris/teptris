@@ -85,6 +85,20 @@ TEPTRIS_API teptris_status teptris_plan_result_array_integer_at(
  * stay addressable with the same accessors. */
 TEPTRIS_API teptris_plan_result *teptris_plan_result_row_view(
     const teptris_plan_result *r, uint32_t row);
+TEPTRIS_API teptris_status teptris_plan_result_array_float_at(
+    const teptris_plan_result *r, uint32_t row, uint32_t i, double *out);
+TEPTRIS_API teptris_status teptris_plan_result_array_boolean_at(
+    const teptris_plan_result *r, uint32_t row, uint32_t i, bool *out);
+TEPTRIS_API teptris_status teptris_plan_result_array_datetime_at(
+    const teptris_plan_result *r, uint32_t row, uint32_t i,
+    teptris_datetime *out);
+/* Plan row metadata (assembly drivers): kind/sub/name by plan+row. */
+TEPTRIS_API uint8_t teptris_plan_row_kind_at(const teptris_plan *p,
+                                          uint32_t plan_idx, uint32_t row);
+TEPTRIS_API uint32_t teptris_plan_row_sub_at(const teptris_plan *p,
+                                          uint32_t plan_idx, uint32_t row);
+TEPTRIS_API const char *teptris_plan_row_name_at(const teptris_plan *p,
+                                              uint32_t plan_idx, uint32_t row);
 /* Borrowed sub-result over an ARRAY element (e.g. a table from an
  * array-of-tables): its plan rows are addressable with the same
  * accessors. Shares the parent result's lifetime; release the wrapper

@@ -342,6 +342,80 @@ teptris_plan_result *teptris_plan_result_row_view(const teptris_plan_result *r,
     return view;
 }
 
+teptris_status teptris_plan_result_array_float_at(const teptris_plan_result *r,
+                                                  uint32_t row, uint32_t i,
+                                                  double *out)
+{
+    const rnode *c = child_of(r, row);
+    if (c == NULL || c->kind != TEPTRIS_PLAN_ARRAY || i >= c->n) {
+        return TEPTRIS_ERR_ARG;
+    }
+    const rnode *k = c->kids[i];
+    if (k->kind != TEPTRIS_PLAN_SCALAR) {
+        return TEPTRIS_ERR_ARG;
+    }
+    return teptris_node_float(k->src, out);
+}
+
+teptris_status teptris_plan_result_array_boolean_at(
+    const teptris_plan_result *r, uint32_t row, uint32_t i, bool *out)
+{
+    const rnode *c = child_of(r, row);
+    if (c == NULL || c->kind != TEPTRIS_PLAN_ARRAY || i >= c->n) {
+        return TEPTRIS_ERR_ARG;
+    }
+    const rnode *k = c->kids[i];
+    if (k->kind != TEPTRIS_PLAN_SCALAR) {
+        return TEPTRIS_ERR_ARG;
+    }
+    return teptris_node_boolean(k->src, out);
+}
+
+teptris_status teptris_plan_result_array_datetime_at(
+    const teptris_plan_result *r, uint32_t row, uint32_t i,
+    teptris_datetime *out)
+{
+    const rnode *c = child_of(r, row);
+    if (c == NULL || c->kind != TEPTRIS_PLAN_ARRAY || i >= c->n) {
+        return TEPTRIS_ERR_ARG;
+    }
+    const rnode *k = c->kids[i];
+    if (k->kind != TEPTRIS_PLAN_SCALAR) {
+        return TEPTRIS_ERR_ARG;
+    }
+    return teptris_node_datetime(k->src, out);
+}
+
+uint8_t teptris_plan_row_kind_at(const teptris_plan *p, uint32_t plan_idx,
+                              uint32_t row)
+{
+    uint32_t lo = p->first_row[plan_idx];
+    if (plan_idx >= p->plan_count || row >= p->first_row[plan_idx + 1] - lo) {
+        return 0;
+    }
+    return p->rows[lo + row].kind;
+}
+
+uint32_t teptris_plan_row_sub_at(const teptris_plan *p, uint32_t plan_idx,
+                              uint32_t row)
+{
+    uint32_t lo = p->first_row[plan_idx];
+    if (plan_idx >= p->plan_count || row >= p->first_row[plan_idx + 1] - lo) {
+        return 0;
+    }
+    return p->rows[lo + row].sub;
+}
+
+const char *teptris_plan_row_name_at(const teptris_plan *p, uint32_t plan_idx,
+                                  uint32_t row)
+{
+    uint32_t lo = p->first_row[plan_idx];
+    if (plan_idx >= p->plan_count || row >= p->first_row[plan_idx + 1] - lo) {
+        return NULL;
+    }
+    return p->rows[lo + row].name;
+}
+
 teptris_plan_result *teptris_plan_result_array_entry_at(
     const teptris_plan_result *r, uint32_t row, uint32_t i)
 {
