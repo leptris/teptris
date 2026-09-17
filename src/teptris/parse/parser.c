@@ -18,23 +18,20 @@ teptris_status tep_fail_at(teptris_parser *ps, const char *at, teptris_status co
     doc->err.status = code;
     doc->err.message = doc->err_msg;
 
+    /* Position state is lazy: hot paths never maintain line/bol, so
+     * every position is computed by one scan src -> pos (error paths
+     * already abort the parse; this is the only line/column source). */
     const char *pos = (at != NULL) ? at : ps->p;
-    if (pos >= ps->bol && pos <= ps->end) {
-        doc->err.line = ps->line;
-        doc->err.column = (size_t)(pos - ps->bol) + 1;
-    } else {
-        /* Position on an earlier line (e.g. unterminated string): rescan. */
-        size_t line = 1;
-        const char *bol = ps->src;
-        for (const char *q = ps->src; q < pos; q++) {
-            if (*q == '\n') {
-                line++;
-                bol = q + 1;
-            }
+    size_t line = 1;
+    const char *bol = ps->src;
+    for (const char *q = ps->src; q < pos; q++) {
+        if (*q == '\n') {
+            line++;
+            bol = q + 1;
         }
-        doc->err.line = line;
-        doc->err.column = (size_t)(pos - bol) + 1;
     }
+    doc->err.line = line;
+    doc->err.column = (size_t)(pos - bol) + 1;
     return code;
 }
 
@@ -44,18 +41,7 @@ void tep_adv(teptris_parser *ps, size_t n)
     if (n > avail) {
         n = avail;
     }
-    /* memchr pays off only on long spans; short tokens take the loop. */
-    if (n >= 16 && memchr(ps->p, '\n', n) == NULL) {
-        ps->p += n;
-        return;
-    }
-    for (size_t i = 0; i < n; i++) {
-        if (*ps->p == '\n') {
-            ps->line++;
-            ps->bol = ps->p + 1;
-        }
-        ps->p++;
-    }
+    ps->p += n;
 }
 
 teptris_status tep_skip_ws(teptris_parser *ps)
@@ -538,8 +524,7 @@ static teptris_status skip_array_gap(teptris_parser *ps)
             return TEPTRIS_OK;
         }
         if (*ps->p == '\n') {
-            ps->line++;
-            ps->bol = ++ps->p;
+            ps->p++;
             continue;
         }
         if (*ps->p == '#') {
@@ -721,8 +706,6 @@ teptris_status teptris_parser_run(teptris_document *doc, const char *data,
     ps.src = data;
     ps.p = data + off;
     ps.end = data + len;
-    ps.bol = data + off;
-    ps.line = 1;
     ps.max_depth = doc->max_depth ? doc->max_depth : 512;
 
     doc->root = teptris_dom_new_table(doc, TBL_EXPLICIT);

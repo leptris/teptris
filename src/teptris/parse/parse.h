@@ -9,8 +9,6 @@ typedef struct teptris_parser {
     const char *src;  /* input start (error position rescans) */
     const char *p;    /* cursor */
     const char *end;  /* one past last input byte */
-    const char *bol;  /* beginning of current line (for columns) */
-    size_t line;      /* 1-based */
     uint32_t depth;
     uint32_t max_depth;
     teptris_node *cur; /* open table (root until the first header) */
@@ -25,7 +23,8 @@ teptris_status teptris_parser_run(teptris_document *doc, const char *data,
 teptris_status tep_fail_at(teptris_parser *ps, const char *at, teptris_status code,
                            const char *fmt, ...);
 
-/* Advance the cursor n bytes, maintaining line/bol. */
+/* Advance the cursor n bytes (clamped to the end). Position state
+ * (line/bol) is lazy: tep_fail_at computes it by rescan on error. */
 void tep_adv(teptris_parser *ps, size_t n);
 
 /* scalars.c: dispatch on the first byte; parses any value. */
