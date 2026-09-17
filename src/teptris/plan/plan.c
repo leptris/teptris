@@ -325,6 +325,23 @@ teptris_status teptris_plan_result_array_integer_at(const teptris_plan_result *r
 /* Borrowed sub-result: navigates an ARRAY element (e.g. a table from
  * an array-of-tables) so its plan rows stay addressable. Shares the
  * parent's lifetime — do not free. */
+/* Borrowed sub-result for a TABLE-kind row (a NESTED row's walked
+ * subtree): its plan rows stay addressable. Same lifetime rules as
+ * array_entry_at. */
+teptris_plan_result *teptris_plan_result_row_view(const teptris_plan_result *r,
+                                                  uint32_t row)
+{
+    const rnode *c = child_of(r, row);
+    if (c == NULL || c->kind != TEPTRIS_PLAN_TABLE) {
+        return NULL;
+    }
+    teptris_plan_result *view = malloc(sizeof(*view));
+    if (view != NULL) {
+        view->root = c;
+    }
+    return view;
+}
+
 teptris_plan_result *teptris_plan_result_array_entry_at(
     const teptris_plan_result *r, uint32_t row, uint32_t i)
 {

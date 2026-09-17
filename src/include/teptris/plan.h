@@ -81,6 +81,10 @@ TEPTRIS_API teptris_status teptris_plan_result_array_integer_at(
     const teptris_plan_result *r, uint32_t row, uint32_t i, int64_t *out);
 /* RAW rows: the untouched document subtree (read with the normal
  * teptris_node_* API). */
+/* Borrowed sub-result over a TABLE-kind row (NESTED): its plan rows
+ * stay addressable with the same accessors. */
+TEPTRIS_API teptris_plan_result *teptris_plan_result_row_view(
+    const teptris_plan_result *r, uint32_t row);
 /* Borrowed sub-result over an ARRAY element (e.g. a table from an
  * array-of-tables): its plan rows are addressable with the same
  * accessors. Shares the parent result's lifetime; release the wrapper
