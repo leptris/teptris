@@ -110,4 +110,42 @@ TEST(Plan, BuildRejectsBadSpecs)
     teptris_plan_free(nullptr);
 }
 
+TEST(Plan, RawNestedCollectionCombo)
+{
+    /* mirrors the binding regression spec: scalar + AoT-nested + RAW
+     * in one root plan (musl segfaulted on the ruby side) */
+    const char *src =
+        "name = \"svc\"\n[[items]]\nid = 1\n[meta]\nx = \"r\"\n";
+    DocGuard g;
+    ASSERT_EQ(teptris_parse(src, strlen(src), nullptr, &g.doc), TEPTRIS_OK);
+    teptris_plan_row rows[] = {
+        {"name", TEPTRIS_PLAN_SCALAR, 0},
+        {"items", TEPTRIS_PLAN_NESTED, 1},
+        {"meta", TEPTRIS_PLAN_RAW, 0},
+        {"id", TEPTRIS_PLAN_SCALAR, 0},
+    };
+    uint32_t first[] = {0, 3, 4};
+    teptris_plan_spec spec{TEPTRIS_PLAN_ABI_VERSION, 2, rows, first};
+    PlanGuard pg;
+    teptris_status st;
+    pg.p = teptris_plan_build(&spec, &st);
+    ASSERT_EQ(st, TEPTRIS_OK);
+    ResGuard rg;
+    rg.r = teptris_plan_walk(pg.p, teptris_document_root(g.doc), &st);
+    ASSERT_EQ(st, TEPTRIS_OK);
+
+    ASSERT_EQ(teptris_plan_result_kind_at(rg.r, 2), (uint8_t)TEPTRIS_PLAN_RAW_RESULT);
+    const teptris_node *raw = teptris_plan_result_raw_at(rg.r, 2);
+    ASSERT_NE(raw, nullptr);
+    teptris_view rv;
+    ASSERT_EQ(teptris_node_table_get(raw, "x", 1) != nullptr, true);
+
+    teptris_plan_result *e = teptris_plan_result_array_entry_at(rg.r, 1, 0);
+    ASSERT_NE(e, nullptr);
+    int64_t id = -1;
+    ASSERT_EQ(teptris_plan_result_integer_at(e, 0, &id), TEPTRIS_OK);
+    EXPECT_EQ(id, 1);
+    teptris_plan_result_view_free(e);
+}
+
 } // namespace
