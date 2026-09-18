@@ -1,6 +1,6 @@
 # teptris — TOML at library speed
 
-An ultra-performance TOML 1.0 parser/writer in pure C11 — the TOML
+An ultra-performance TOML 1.1 parser/writer in pure C99 — the TOML
 sibling of [libleptris](https://github.com/leptris/leptris) (XML) and
 [libyeptris](https://github.com/leptris/yeptris) (YAML+JSON). Zero
 required runtime dependencies, stable C ABI, opaque handles.
