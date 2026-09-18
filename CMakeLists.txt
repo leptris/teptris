@@ -1,11 +1,11 @@
-# teptris — Ultra-fast TOML 1.0 parser and emitter in C
+# teptris — Ultra-fast TOML 1.1 parser and emitter in C
 # The TOML sibling of libleptris (XML) and libyeptris (YAML+JSON). Pure C
 # library with CLI, tests and bindings, zero required runtime deps.
 cmake_minimum_required(VERSION 3.20)
 
 project(teptris
     VERSION 0.1.18
-    DESCRIPTION "Ultra-fast TOML 1.0 parser and emitter in C"
+    DESCRIPTION "Ultra-fast TOML 1.1 parser and emitter in C"
     LANGUAGES C CXX
 )
 
