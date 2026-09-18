@@ -65,6 +65,19 @@ static void eb_c(ebuf *b, char c)
     eb_put(b, &c, 1);
 }
 
+/* ", " — the element/entry separator — as one direct 2-byte write;
+ * the densest loops pay it per element */
+static void eb_sep2(ebuf *b)
+{
+    if (b->st == TEPTRIS_OK && b->len + 3 <= b->cap) {
+        b->p[b->len] = ',';
+        b->p[b->len + 1] = ' ';
+        b->len += 2;
+        return;
+    }
+    eb_put(b, ", ", 2);
+}
+
 static void eb_str(ebuf *b, const char *s)
 {
     eb_put(b, s, strlen(s));
@@ -430,16 +443,21 @@ static void emit_value(ebuf *b, const teptris_node *n)
     case TEPTRIS_TIME_LOCAL:
         emit_dt(b, &n->as.dt, (teptris_kind)n->kind);
         break;
-    case TEPTRIS_ARRAY:
+    case TEPTRIS_ARRAY: {
+        /* first element hoisted: no per-element separator branch in
+         * the loop (arrays are the element-densest shape) */
+        size_t alen = n->as.array.len;
         eb_c(b, '[');
-        for (size_t i = 0; i < n->as.array.len; i++) {
-            if (i > 0) {
-                eb_str(b, ", ");
+        if (alen > 0) {
+            emit_value(b, n->as.array.items[0]);
+            for (size_t i = 1; i < alen; i++) {
+                eb_sep2(b);
+                emit_value(b, n->as.array.items[i]);
             }
-            emit_value(b, n->as.array.items[i]);
         }
         eb_c(b, ']');
         break;
+    }
     case TEPTRIS_TABLE:
         emit_inline_table(b, n);
         break;
