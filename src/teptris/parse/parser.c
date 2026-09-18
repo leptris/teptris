@@ -449,6 +449,131 @@ static teptris_status parse_header(teptris_parser *ps)
     return TEPTRIS_OK;
 }
 
+/* Fast path for the dominant header shape: [bare.bare.bare] with no
+ * ws, no quoted segments, no [[. The dotted path is scanned inline
+ * (FNV fused into the scan, like try_keyval_fast) and resolved via
+ * the fused insert path. Returns false BEFORE any mutation for every
+ * other shape; when it returns true, *st_out carries the verdict and
+ * *out the target table (errors tear down the document, so implicit
+ * tables created before an error are harmless). */
+static bool try_header_fast(teptris_parser *ps, teptris_status *st_out,
+                            teptris_node **out)
+{
+    const char *start = ps->p;
+    if (start >= ps->end || *start != '[') {
+        return false;
+    }
+    const char *q = start + 1;
+    if (q >= ps->end || *q == '[') {
+        return false; /* array-of-tables: general path */
+    }
+    teptris_view parts[8];
+    uint64_t hs[8];
+    size_t count = 0;
+    for (;;) {
+        if (q >= ps->end || !tep_is_barekey((unsigned char)*q)) {
+            return false; /* empty/quoted segment or ws: general path */
+        }
+        if (count == 8) {
+            return false;
+        }
+        uint64_t h = 1469598103934665603ULL;
+        const char *seg = q;
+        while (q < ps->end && tep_is_barekey((unsigned char)*q)) {
+            h ^= (unsigned char)*q;
+            h *= 1099511628211ULL;
+            q++;
+        }
+        parts[count].ptr = seg;
+        parts[count].len = (size_t)(q - seg);
+        hs[count] = h;
+        count++;
+        if (q < ps->end && *q == '.') {
+            q++;
+            continue;
+        }
+        break;
+    }
+    if (q >= ps->end || *q != ']') {
+        return false;
+    }
+
+    /* shape confirmed — commit the resolution */
+    teptris_document *doc = ps->doc;
+    teptris_node *t = doc->root;
+    for (size_t i = 0; i + 1 < count; i++) {
+        size_t slot;
+        teptris_entry *e =
+            teptris_dom_table_probe_slot(t, hs[i], parts[i].ptr,
+                                         parts[i].len, &slot);
+        if (e == NULL) {
+            teptris_node *child = teptris_dom_new_table(doc, TBL_IMPLICIT);
+            if (child == NULL) {
+                *st_out = TEPTRIS_ERR_ALLOC;
+                return true;
+            }
+            teptris_status st = teptris_dom_table_insert_slot(
+                doc, t, parts[i], hs[i], child, slot);
+            if (st != TEPTRIS_OK) {
+                *st_out = st;
+                return true;
+            }
+            t = child;
+            continue;
+        }
+        teptris_node *v = e->value;
+        if (v->kind == TEPTRIS_ARRAY) {
+            if (!(v->flags & ARR_AOT)) {
+                ps->p = q + 1; /* error position matches parse_header */
+                *st_out = tep_fail_at(
+                    ps, NULL, TEPTRIS_ERR_SEMANTIC,
+                    "cannot extend plain array '%.*s'", (int)parts[i].len,
+                    parts[i].ptr);
+                return true;
+            }
+            t = v->as.array.items[v->as.array.len - 1];
+        } else if (v->kind == TEPTRIS_TABLE) {
+            if (v->flags & TBL_INLINE) {
+                ps->p = q + 1; /* error position matches parse_header */
+                *st_out = tep_fail_at(
+                    ps, NULL, TEPTRIS_ERR_SEMANTIC,
+                    "cannot extend inline table '%.*s'", (int)parts[i].len,
+                    parts[i].ptr);
+                return true;
+            }
+            t = v;
+        } else {
+            ps->p = q + 1; /* error position matches parse_header */
+            *st_out = tep_fail_at(ps, NULL, TEPTRIS_ERR_SEMANTIC,
+                                  "key '%.*s' is not a table",
+                                  (int)parts[i].len, parts[i].ptr);
+            return true;
+        }
+    }
+    size_t last_slot;
+    teptris_view last = parts[count - 1];
+    if (teptris_dom_table_probe_slot(t, hs[count - 1], last.ptr, last.len,
+                                     &last_slot) != NULL) {
+        return false; /* exact-redefinition / implicit-convert: general */
+    }
+    teptris_node *tbl = teptris_dom_new_table(doc, TBL_EXPLICIT);
+    if (tbl == NULL) {
+        *st_out = TEPTRIS_ERR_ALLOC;
+        return true;
+    }
+    teptris_status st = teptris_dom_table_insert_slot(doc, t, last,
+                                                      hs[count - 1], tbl,
+                                                      last_slot);
+    if (st != TEPTRIS_OK) {
+        *st_out = st;
+        return true;
+    }
+    ps->p = q + 1;
+    *st_out = TEPTRIS_OK;
+    *out = tbl;
+    return true;
+}
+
 /* Fused fast path for the dominant line shape: bare key, optional
  * ws, '=', optional ws, value — no dots, no quoted key. Scans the key
  * inline, parses the value, and does a single find+insert; avoids the
@@ -773,7 +898,18 @@ teptris_status teptris_parser_run(teptris_document *doc, const char *data,
             }
             continue;
         }
-        st = (c == '[') ? parse_header(&ps) : parse_keyval(&ps);
+        if (c == '[') {
+            teptris_node *target = NULL;
+            if (try_header_fast(&ps, &st, &target)) {
+                if (st == TEPTRIS_OK) {
+                    ps.cur = target;
+                }
+            } else {
+                st = parse_header(&ps);
+            }
+        } else {
+            st = parse_keyval(&ps);
+        }
         if (st != TEPTRIS_OK) {
             return st;
         }
