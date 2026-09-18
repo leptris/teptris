@@ -20,3 +20,8 @@ measured negative-or-neutral on five table-management variants; the
 shape's tables are tiny and the double walk may already be cache-
 resident. The lane decides; if it loses, the class is closed with
 the infrastructure-era data point.
+
+Status: **implemented (2026-09-18, this PR); lane verdict appended
+below on merge.** find_probe (now single-caller-less) deleted along
+the way. Gates: 73/73 unit + ASan, toml-test 714/0, duplicate-key
+differential across the 30-key rebuild boundary identical.

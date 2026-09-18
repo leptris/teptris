@@ -73,17 +73,9 @@ teptris_entry *teptris_dom_table_find_h(const teptris_node *table,
                                         const char *key, size_t key_len,
                                         uint64_t *hash_out);
 
-/* Probe with a PRECOMPUTED hash (the parser computes it while
- * scanning the key bytes). Returns NULL when absent — including the
- * index-less (empty) case, where no duplicate can exist. */
-teptris_entry *teptris_dom_table_find_probe(const teptris_node *table,
-                                            uint64_t hash, const char *key,
-                                            size_t key_len);
-
 /* Probe with a PRECOMPUTED hash that also reports the empty index
  * slot the walk stopped at, for reuse by insert_slot — one walk for
- * the whole miss->insert sequence (header paths; the keyval path
- * keeps full-walk find semantics for its duplicate check).
+ * the whole miss->insert sequence (header and keyval paths).
  * *slot_out is SIZE_MAX when the slot cannot be reused (empty table,
  * non-table). Must be header-inline: cross-TU, the call cost ate the
  * measured gain last time. */
