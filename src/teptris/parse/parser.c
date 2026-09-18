@@ -624,12 +624,13 @@ static bool try_keyval_fast(teptris_parser *ps, teptris_node *tbl,
         *st_out = st;
         return true;
     }
-    if (teptris_dom_table_find_probe(tbl, h, key.ptr, key.len) != NULL) {
+    size_t slot;
+    if (teptris_dom_table_probe_slot(tbl, h, key.ptr, key.len, &slot) != NULL) {
         *st_out = tep_fail_at(ps, NULL, TEPTRIS_ERR_SEMANTIC,
                               "duplicate key '%.*s'", (int)key.len, key.ptr);
         return true;
     }
-    *st_out = teptris_dom_table_insert_h(ps->doc, tbl, key, h, value);
+    *st_out = teptris_dom_table_insert_slot(ps->doc, tbl, key, h, value, slot);
     return true;
 }
 

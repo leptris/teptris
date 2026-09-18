@@ -165,27 +165,6 @@ teptris_status teptris_dom_table_insert_slot(teptris_document *doc,
     return TEPTRIS_OK;
 }
 
-teptris_entry *teptris_dom_table_find_probe(const teptris_node *t,
-                                            uint64_t hash, const char *key,
-                                            size_t key_len)
-{
-    if (t == NULL || t->kind != TEPTRIS_TABLE || t->as.table.idx_cap == 0) {
-        return NULL; /* empty: no duplicate possible */
-    }
-    size_t mask = t->as.table.idx_cap - 1;
-    size_t slot = (size_t)hash & mask;
-    while (t->as.table.index[slot] != 0) {
-        uint32_t ei = t->as.table.index[slot] - 1;
-        const teptris_entry *e = &t->as.table.entries[ei];
-        if (e->hash == hash && e->key.len == key_len &&
-            memcmp(e->key.ptr, key, key_len) == 0) {
-            return (teptris_entry *)e;
-        }
-        slot = (slot + 1) & mask;
-    }
-    return NULL;
-}
-
 teptris_status teptris_dom_array_push(teptris_document *doc, teptris_node *a,
                                       teptris_node *value)
 {
