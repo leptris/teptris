@@ -145,6 +145,21 @@ static size_t utf8_invalid_at(const char *data, size_t len)
     static const uint32_t mins[3] = {0x80, 0x800, 0x10000};
     size_t i = 0;
     while (i < len) {
+        /* SWAR ASCII skip: 8 bytes per iteration while every high bit
+         * is clear (all-ASCII corpora never pay the byte loop). A
+         * word with a high bit falls through; the multibyte walker
+         * resumes this loop after each sequence. */
+        while (i + 8 <= len) {
+            uint64_t w;
+            memcpy(&w, data + i, 8);
+            if ((w & 0x8080808080808080ULL) != 0) {
+                break;
+            }
+            i += 8;
+        }
+        if (i >= len) {
+            break;
+        }
         unsigned char c = (unsigned char)data[i];
         if (c < 0x80) {
             i++;
