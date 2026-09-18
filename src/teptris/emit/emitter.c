@@ -329,6 +329,14 @@ static size_t key_to_buf(char *dst, teptris_view key)
 
 static void emit_key(ebuf *b, teptris_view key)
 {
+    /* keys <= ~42 bytes (every bare key, nearly all quoted) never
+     * touch the allocator */
+    char stack[256];
+    if (key_buf_cap(key) <= sizeof(stack)) {
+        size_t n = key_to_buf(stack, key);
+        eb_put(b, stack, n);
+        return;
+    }
     char *ks = malloc(key_buf_cap(key));
     if (ks == NULL) {
         b->st = TEPTRIS_ERR_ALLOC;
@@ -435,23 +443,28 @@ static void emit_table_children(ebuf *b, const char *prefix, size_t plen,
 static void emit_section(ebuf *b, const char *prefix, size_t plen,
                          teptris_view key, const teptris_node *n)
 {
-    char *ks = malloc(key_buf_cap(key));
-    char *hdr = malloc(plen + key_buf_cap(key) + 2);
-    if (ks == NULL || hdr == NULL) {
-        free(ks);
-        free(hdr);
-        b->st = TEPTRIS_ERR_ALLOC;
-        return;
+    /* one stack buffer covers ordinary section paths (and the key is
+     * rendered straight into it — one copy fewer than the old
+     * ks + hdr pair) */
+    char stack[512];
+    size_t hcap = plen + key_buf_cap(key) + 2;
+    char *hdr;
+    if (hcap <= sizeof(stack)) {
+        hdr = stack;
+    } else {
+        hdr = malloc(hcap);
+        if (hdr == NULL) {
+            b->st = TEPTRIS_ERR_ALLOC;
+            return;
+        }
     }
-    size_t klen = key_to_buf(ks, key);
     size_t hl = 0;
     if (plen > 0) {
         memcpy(hdr, prefix, plen);
         hl = plen;
         hdr[hl++] = '.';
     }
-    memcpy(hdr + hl, ks, klen);
-    hl += klen;
+    hl += key_to_buf(hdr + hl, key);
 
     if (n->kind == TEPTRIS_ARRAY) { /* array of tables */
         for (size_t i = 0; i < n->as.array.len; i++) {
@@ -466,8 +479,9 @@ static void emit_section(ebuf *b, const char *prefix, size_t plen,
         eb_str(b, "]\n");
         emit_table_children(b, hdr, hl, n);
     }
-    free(ks);
-    free(hdr);
+    if (hdr != stack) {
+        free(hdr);
+    }
 }
 
 static void emit_table_children(ebuf *b, const char *prefix, size_t plen,
