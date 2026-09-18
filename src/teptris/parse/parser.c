@@ -456,10 +456,15 @@ static teptris_status parse_header(teptris_parser *ps)
  * other shape; when it returns true, *st_out carries the verdict and
  * *out the target table (errors tear down the document, so implicit
  * tables created before an error are harmless). */
+#if defined(_MSC_VER)
+#define TEP_NOINLINE __declspec(noinline)
+#else
+#define TEP_NOINLINE __attribute__((noinline))
+#endif
 /* noinline: single-caller statics inline into the main loop by
  * default, and the loop is per-LINE code — the 8th-lever lesson */
-__attribute__((noinline)) static bool try_header_fast(teptris_parser *ps,
-                                                     teptris_status *st_out,
+TEP_NOINLINE static bool try_header_fast(teptris_parser *ps,
+                                        teptris_status *st_out,
                             teptris_node **out)
 {
     const char *start = ps->p;
