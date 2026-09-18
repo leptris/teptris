@@ -1,6 +1,12 @@
 # 07 — UTF-8 validation: remove the upfront full-document pass
 
-UNMEASURED candidate, sized and ready.
+Status: **shipped (v0.1.21, PR #60) — design (a), the SWAR ASCII
+skip.** 8 bytes per iteration in `utf8_invalid_at`, byte loop on any
+non-ASCII word; byte-identical error positions (5-case differential).
+Lane verdict: parse +20-35% on EVERY shape — the validation pass was
+a quarter of parse. Design (b) (fuse into the parse loop) stays
+unmeasured and CLOSED: (a) already reduced the pass to ~1/8 of its
+byte cost; fusing would re-couple scanners for a bounded residual.
 
 `teptris_parser_run` calls `validate_utf8` BEFORE parsing — a full
 per-byte branchy scan of the document that the parse then repeats.

@@ -1,6 +1,5 @@
 #include "teptris/emit/emitter.h"
 
-#include <inttypes.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,6 +40,14 @@ static void eb_reserve(ebuf *b, size_t extra)
 
 static void eb_put(ebuf *b, const char *s, size_t n)
 {
+    if (b->st != TEPTRIS_OK) {
+        return;
+    }
+    if (b->len + n + 1 <= b->cap) {
+        memcpy(b->p + b->len, s, n);
+        b->len += n;
+        return;
+    }
     eb_reserve(b, n);
     if (b->st != TEPTRIS_OK) {
         return;
@@ -51,6 +58,10 @@ static void eb_put(ebuf *b, const char *s, size_t n)
 
 static void eb_c(ebuf *b, char c)
 {
+    if (b->st == TEPTRIS_OK && b->len + 2 <= b->cap) {
+        b->p[b->len++] = c;
+        return;
+    }
     eb_put(b, &c, 1);
 }
 
@@ -60,6 +71,30 @@ static void eb_str(ebuf *b, const char *s)
 }
 
 /* ------------------------------------------------------------- scalars -- */
+
+/* direct writer, shared by both emit views: snprintf costs a
+ * format-parse + locale check per number */
+static void emit_i64(ebuf *b, int64_t v)
+{
+    uint64_t mag;
+    bool neg = v < 0;
+    if (neg) {
+        mag = (uint64_t)(-(v + 1)) + 1; /* INT64_MIN safe */
+    } else {
+        mag = (uint64_t)v;
+    }
+    char tmp[32];
+    char *q = tmp + sizeof(tmp);
+    *--q = '\0';
+    do {
+        *--q = (char)('0' + (mag % 10));
+        mag /= 10;
+    } while (mag != 0);
+    if (neg) {
+        *--q = '-';
+    }
+    eb_put(b, q, (size_t)(tmp + sizeof(tmp) - 1 - q));
+}
 
 static void emit_float(ebuf *b, double f)
 {
@@ -206,8 +241,23 @@ static void emit_dt(ebuf *b, const teptris_datetime *dt, teptris_kind k)
 static void emit_basic_bytes(ebuf *b, const char *s, size_t n)
 {
     eb_c(b, '"');
-    for (size_t i = 0; i < n; i++) {
-        unsigned char c = (unsigned char)s[i];
+    size_t i = 0;
+    while (i < n) {
+        /* span-scan to the next byte needing escape; the clean run
+         * goes out as one eb_put instead of per-byte eb_c */
+        size_t start = i;
+        while (i < n) {
+            unsigned char c = (unsigned char)s[i];
+            if (c == '"' || c == '\\' || c < 0x20 || c == 0x7F) {
+                break;
+            }
+            i++;
+        }
+        eb_put(b, s + start, i - start);
+        if (i == n) {
+            break;
+        }
+        unsigned char c = (unsigned char)s[i++];
         switch (c) {
         case '"':
             eb_str(b, "\\\"");
@@ -235,8 +285,6 @@ static void emit_basic_bytes(ebuf *b, const char *s, size_t n)
                 char esc[8];
                 snprintf(esc, sizeof(esc), "\\u%04X", c);
                 eb_str(b, esc);
-            } else {
-                eb_c(b, (char)c);
             }
         }
     }
@@ -353,33 +401,13 @@ static void emit_inline_table(ebuf *b, const teptris_node *t);
 
 static void emit_value(ebuf *b, const teptris_node *n)
 {
-    char tmp[32];
     switch (n->kind) {
     case TEPTRIS_STRING:
         emit_string_value(b, n->as.str);
         break;
-    case TEPTRIS_INTEGER: {
-        /* direct writer: snprintf costs a format-parse + locale check
-         * per number and dominates int-heavy emits */
-        uint64_t mag;
-        bool neg = n->as.i < 0;
-        if (neg) {
-            mag = (uint64_t)(-(n->as.i + 1)) + 1; /* INT64_MIN safe */
-        } else {
-            mag = (uint64_t)n->as.i;
-        }
-        char *q = tmp + sizeof(tmp);
-        *--q = '\0';
-        do {
-            *--q = (char)('0' + (mag % 10));
-            mag /= 10;
-        } while (mag != 0);
-        if (neg) {
-            *--q = '-';
-        }
-        eb_put(b, q, (size_t)(tmp + sizeof(tmp) - 1 - q));
+    case TEPTRIS_INTEGER:
+        emit_i64(b, n->as.i);
         break;
-    }
     case TEPTRIS_FLOAT:
         emit_float(b, n->as.f);
         break;
@@ -527,8 +555,21 @@ teptris_status teptris_emit_document(const teptris_document *doc, char **buf,
 static void json_string(ebuf *b, teptris_view s)
 {
     eb_c(b, '"');
-    for (size_t i = 0; i < s.len; i++) {
-        unsigned char c = (unsigned char)s.ptr[i];
+    size_t i = 0;
+    while (i < s.len) {
+        size_t start = i;
+        while (i < s.len) {
+            unsigned char c = (unsigned char)s.ptr[i];
+            if (c == '"' || c == '\\' || c < 0x20) {
+                break;
+            }
+            i++;
+        }
+        eb_put(b, s.ptr + start, i - start);
+        if (i == s.len) {
+            break;
+        }
+        unsigned char c = (unsigned char)s.ptr[i++];
         switch (c) {
         case '"':
             eb_str(b, "\\\"");
@@ -556,8 +597,6 @@ static void json_string(ebuf *b, teptris_view s)
                 char esc[8];
                 snprintf(esc, sizeof(esc), "\\u%04X", c);
                 eb_str(b, esc);
-            } else {
-                eb_c(b, (char)c);
             }
         }
     }
@@ -590,7 +629,6 @@ static const char *json_type_name(teptris_kind k)
 
 static void emit_json_value(ebuf *b, const teptris_node *n)
 {
-    char tmp[32];
     switch (n->kind) {
     case TEPTRIS_TABLE:
         eb_c(b, '{');
@@ -620,9 +658,8 @@ static void emit_json_value(ebuf *b, const teptris_node *n)
         eb_c(b, '}');
         break;
     case TEPTRIS_INTEGER:
-        snprintf(tmp, sizeof(tmp), "%" PRId64, n->as.i);
         eb_str(b, "{\"type\":\"integer\",\"value\":\"");
-        eb_str(b, tmp);
+        emit_i64(b, n->as.i);
         eb_str(b, "\"}");
         break;
     case TEPTRIS_FLOAT:
