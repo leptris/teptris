@@ -42,12 +42,14 @@ struct teptris_node {
     } as;
 };
 
-/* _Static_assert is C11; g++ (unlike clang++) has no such extension */
+/* C99/MSVC-C-mode/nd C++ portable static assert (negative array
+ * size on violation); _Static_assert would pin us to C11+ */
 #if defined(__cplusplus)
-static_assert(sizeof(teptris_node) <= 64, "teptris_node must stay compact");
+#define TEP_SA(cond, name) static_assert(cond, #name)
 #else
-_Static_assert(sizeof(teptris_node) <= 64, "teptris_node must stay compact");
+#define TEP_SA(cond, name) typedef char tep_sa_##name[(cond) ? 1 : -1]
 #endif
+TEP_SA(sizeof(teptris_node) <= 64, node_fits_64);
 
 struct teptris_document {
     teptris_arena arena;
