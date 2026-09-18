@@ -86,18 +86,8 @@ static void eb_str(ebuf *b, const char *s)
 /* ------------------------------------------------------------- scalars -- */
 
 /* direct writer, shared by both emit views: snprintf costs a
- * format-parse + locale check per number. Forced inline: gcc keeps
- * the shared static out-of-line, and the per-number call regressed
- * the number-densest shape (array emit) ~9% on x86. */
-#if defined(_MSC_VER)
-#define TEP_INLINE __forceinline
-#elif defined(__GNUC__) || defined(__clang__)
-#define TEP_INLINE __attribute__((always_inline))
-#else
-#define TEP_INLINE
-#endif
-
-static TEP_INLINE void emit_i64(ebuf *b, int64_t v)
+ * format-parse + locale check per number */
+static inline void emit_i64(ebuf *b, int64_t v)
 {
     uint64_t mag;
     bool neg = v < 0;
