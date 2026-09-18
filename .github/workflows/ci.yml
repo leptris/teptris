@@ -7,6 +7,22 @@ on:
   workflow_dispatch:
 
 jobs:
+  # MSVC never sees a unix CI otherwise; the v0.1.21 GNU attribute
+  # breakage rode a tag until the python binding's ride PR caught it
+  windows-msvc:
+    name: windows-latest (msvc)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        shell: cmd
+        run: |
+          for /f "usebackq tokens=*" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set "VSPATH=%%i"
+          call "%VSPATH%\VC\Auxiliary\Build\vcvarsall.bat" amd64
+          cmake -B build -S . -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=ON -DTEPTRIS_BUILD_CLI=ON
+          cmake --build build
+          cd build && ctest --output-on-failure
+
   build-test:
     name: ${{ matrix.os }} (${{ matrix.build }})
     runs-on: ${{ matrix.os }}
