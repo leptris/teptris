@@ -6,6 +6,10 @@ on:
   pull_request:
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # MSVC never sees a unix CI otherwise; the v0.1.21 GNU attribute
   # breakage rode a tag until the python binding's ride PR caught it
