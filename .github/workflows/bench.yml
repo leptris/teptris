@@ -59,10 +59,10 @@ jobs:
       - name: Build both trees
         run: |
           for d in base head; do
-            cmake -B $d/build -S $d -DCMAKE_BUILD_TYPE=Release \
+            cmake -B "$d/build" -S "$d" -DCMAKE_BUILD_TYPE=Release \
               -DTEPTRIS_BUILD_BENCHMARKS=ON -DBUILD_TESTING=OFF \
-              -DTEPTRIS_EXTERNAL_DIR=$PWD/external
-            cmake --build $d/build -j
+              -DTEPTRIS_EXTERNAL_DIR="$PWD/external"
+            cmake --build "$d/build" -j
           done
 
       - name: Generate corpus
@@ -95,3 +95,14 @@ jobs:
         with:
           name: bench-${{ matrix.os }}-${{ github.run_id }}
           path: '*.json'
+
+  # workflow-file linter: catches the duplicate-key / bad-schema class
+  # that PyYAML tolerated and GitHub only surfaced as placeholder runs
+  lint-workflows:
+    name: actionlint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker://rhysd/actionlint:latest
+        with:
+          args: -color
