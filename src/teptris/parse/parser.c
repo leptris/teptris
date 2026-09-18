@@ -217,14 +217,17 @@ static teptris_status insert_dotted(teptris_parser *ps, teptris_node *table,
 
     for (size_t i = 0; i + 1 < count; i++) {
         teptris_view part = parts[i];
-        uint64_t h;
-        teptris_entry *e = teptris_dom_table_find_h(t, part.ptr, part.len, &h);
+        uint64_t h = teptris_dom_key_hash(part.ptr, part.len);
+        size_t slot;
+        teptris_entry *e =
+            teptris_dom_table_probe_slot(t, h, part.ptr, part.len, &slot);
         if (e == NULL) {
             teptris_node *child = teptris_dom_new_table(doc, TBL_DOTTED);
             if (child == NULL) {
                 return TEPTRIS_ERR_ALLOC;
             }
-            teptris_status st = teptris_dom_table_insert_h(doc, t, part, h, child);
+            teptris_status st =
+                teptris_dom_table_insert_slot(doc, t, part, h, child, slot);
             if (st != TEPTRIS_OK) {
                 return st;
             }
@@ -251,12 +254,14 @@ static teptris_status insert_dotted(teptris_parser *ps, teptris_node *table,
     }
 
     teptris_view last = parts[count - 1];
-    uint64_t hlast;
-    if (teptris_dom_table_find_h(t, last.ptr, last.len, &hlast) != NULL) {
+    uint64_t hlast = teptris_dom_key_hash(last.ptr, last.len);
+    size_t last_slot;
+    if (teptris_dom_table_probe_slot(t, hlast, last.ptr, last.len,
+                                     &last_slot) != NULL) {
         return tep_fail_at(ps, NULL, TEPTRIS_ERR_SEMANTIC, "duplicate key '%.*s'",
                            (int)last.len, last.ptr);
     }
-    return teptris_dom_table_insert_h(doc, t, last, hlast, value);
+    return teptris_dom_table_insert_slot(doc, t, last, hlast, value, last_slot);
 }
 
 /* ------------------------------------------------------------- headers -- */
@@ -269,14 +274,17 @@ static teptris_status resolve_header(teptris_parser *ps, const teptris_view *par
 
     for (size_t i = 0; i + 1 < count; i++) {
         teptris_view part = parts[i];
-        uint64_t h;
-        teptris_entry *e = teptris_dom_table_find_h(t, part.ptr, part.len, &h);
+        uint64_t h = teptris_dom_key_hash(part.ptr, part.len);
+        size_t slot;
+        teptris_entry *e =
+            teptris_dom_table_probe_slot(t, h, part.ptr, part.len, &slot);
         if (e == NULL) {
             teptris_node *child = teptris_dom_new_table(doc, TBL_IMPLICIT);
             if (child == NULL) {
                 return TEPTRIS_ERR_ALLOC;
             }
-            teptris_status st = teptris_dom_table_insert_h(doc, t, part, h, child);
+            teptris_status st =
+                teptris_dom_table_insert_slot(doc, t, part, h, child, slot);
             if (st != TEPTRIS_OK) {
                 return st;
             }
@@ -316,8 +324,10 @@ static teptris_status resolve_header(teptris_parser *ps, const teptris_view *par
     }
 
     teptris_view last = parts[count - 1];
-    uint64_t hlast;
-    teptris_entry *e = teptris_dom_table_find_h(t, last.ptr, last.len, &hlast);
+    uint64_t hlast = teptris_dom_key_hash(last.ptr, last.len);
+    size_t last_slot;
+    teptris_entry *e = teptris_dom_table_probe_slot(t, hlast, last.ptr,
+                                                    last.len, &last_slot);
 
     if (aot) {
         teptris_node *arr;
@@ -326,7 +336,9 @@ static teptris_status resolve_header(teptris_parser *ps, const teptris_view *par
             if (arr == NULL) {
                 return TEPTRIS_ERR_ALLOC;
             }
-            teptris_status st = teptris_dom_table_insert_h(doc, t, last, hlast, arr);
+            teptris_status st = teptris_dom_table_insert_slot(doc, t, last,
+                                                              hlast, arr,
+                                                              last_slot);
             if (st != TEPTRIS_OK) {
                 return st;
             }
@@ -356,7 +368,8 @@ static teptris_status resolve_header(teptris_parser *ps, const teptris_view *par
         if (tbl == NULL) {
             return TEPTRIS_ERR_ALLOC;
         }
-        teptris_status st = teptris_dom_table_insert_h(doc, t, last, hlast, tbl);
+        teptris_status st = teptris_dom_table_insert_slot(doc, t, last, hlast,
+                                                          tbl, last_slot);
         if (st != TEPTRIS_OK) {
             return st;
         }

@@ -114,7 +114,26 @@ teptris_status teptris_dom_table_insert_h(teptris_document *doc, teptris_node *t
                                          teptris_view key, uint64_t hash,
                                          teptris_node *value)
 {
+    return teptris_dom_table_insert_slot(doc, t, key, hash, value, SIZE_MAX);
+}
+
+teptris_status teptris_dom_table_insert_slot(teptris_document *doc,
+                                             teptris_node *t,
+                                             teptris_view key, uint64_t hash,
+                                             teptris_node *value, size_t slot)
+{
     teptris_arena *a = &doc->arena;
+
+    /* load factor FIRST: a rebuild re-probes every entry and any
+     * pre-resolved slot becomes stale */
+    if ((t->as.table.len + 1) * 10 >= t->as.table.idx_cap * 7) {
+        size_t ncap = t->as.table.idx_cap ? t->as.table.idx_cap * 2 : 16;
+        teptris_status st = index_rebuild(doc, t, ncap);
+        if (st != TEPTRIS_OK) {
+            return st;
+        }
+        slot = SIZE_MAX;
+    }
 
     if (t->as.table.len == t->as.table.cap) {
         size_t ncap = t->as.table.cap ? t->as.table.cap * 2 : 8;
@@ -134,18 +153,14 @@ teptris_status teptris_dom_table_insert_h(teptris_document *doc, teptris_node *t
         t->as.table.cap = ncap;
     }
 
-    if ((t->as.table.len + 1) * 10 >= t->as.table.idx_cap * 7) {
-        size_t ncap = t->as.table.idx_cap ? t->as.table.idx_cap * 2 : 16;
-        teptris_status st = index_rebuild(doc, t, ncap);
-        if (st != TEPTRIS_OK) {
-            return st;
-        }
-    }
-
     t->as.table.entries[t->as.table.len].key = key;
     t->as.table.entries[t->as.table.len].value = value;
     t->as.table.entries[t->as.table.len].hash = hash;
-    index_insert(t, (uint32_t)t->as.table.len, hash);
+    if (slot != SIZE_MAX) {
+        t->as.table.index[slot] = (uint32_t)t->as.table.len + 1;
+    } else {
+        index_insert(t, (uint32_t)t->as.table.len, hash);
+    }
     t->as.table.len++;
     return TEPTRIS_OK;
 }
