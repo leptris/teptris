@@ -21,7 +21,13 @@ shape's tables are tiny and the double walk may already be cache-
 resident. The lane decides; if it loses, the class is closed with
 the infrastructure-era data point.
 
-Status: **implemented (2026-09-18, this PR); lane verdict appended
-below on merge.** find_probe (now single-caller-less) deleted along
-the way. Gates: 73/73 unit + ASan, toml-test 714/0, duplicate-key
-differential across the 30-key rebuild boundary identical.
+Status: **SHIPPED (v0.1.23, PR #66, main 7ea4bba) — lane WIN on both
+cells.** find_probe deleted with the swap. Gates: 73/73 unit + ASan,
+toml-test 714/0, duplicate-key differential across the 30-key
+rebuild boundary identical. Lane verdict (medians, spreads checked):
+ubuntu int +3.2 / float +2.6 / mixed +1.5 / cargo +1.0 (tight,
+non-overlapping rounds); macos mixed +8.9 / cargo +9.8 / datetime
++15.2 / int +6.2. Emit deltas on the parse-only diff were layout
+scatter. The table-management class is now closed with a WIN, not
+just the infrastructure-era data point — the 2026-09-16 revert was
+a tooling artifact (cross-TU call), exactly as hypothesized.
