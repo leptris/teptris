@@ -11,8 +11,8 @@ Status: **measured and reverted, twice, with the engine's own kernels.**
 - The tight scalar loops on short tokens (mixed = strings of ~10 bytes)
   are the losing regime for vectorization by construction.
 
-Remaining idea (unmeasured): library-vectorized STRUCTURAL scanning —
-not hand kernels: memchr for the closing quote of basic strings and
-for line ends on comment skipping, where spans can be long.  Low
-expectation for mixed-shaped corpora; plausible for long scalar
-strings.
+Remaining idea ANALYZED AND CLOSED (2026-09-18): memchr for comment
+line-ends gains nothing — the comment VALIDATION loop (control
+chars, lone CR) must still touch every byte, so the terminator
+search was never the cost. String closing-quote scanning is already
+shipped (13). No unmeasured idea remains in this file.
