@@ -17,4 +17,5 @@ Status: **shipped where it pays; class closed by measurement.**
 Remaining idea (unmeasured): a `try_header_fast` for the bare dotted
 header path (`[a.b.c]`, no quotes/ws), fusing the key-path scan with
 FNV hashing per segment the way try_keyval_fast does for single keys.
-See 08-header-fast-path.md.
+SHIPPED as 08 (v0.1.21, PR #61) — parse-positive on every shape after
+a TEP_NOINLINE fix. Nothing unmeasured remains in this class.
