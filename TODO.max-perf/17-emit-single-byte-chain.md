@@ -25,3 +25,17 @@ skipped: <= 24 digits of scalar work after a shortest-round-trip
 call, not a cost center; float rides at 4.1-5.0x.
 
 Verdict via the lane's emit A/B.
+
+Status: **SHIPPED (v0.1.23, PR #67, main 68f294d).** Final head,
+both cells: macos emit +5.9..+31.3 on ALL shapes; ubuntu array
++13.9, int +10.3, datetime +8.8, string +5.3, table +4.1, cargo
++6.4, deep +2.3, float/mixed ~0 — parse unchanged (noise). History
+en route: ubuntu array sat at -8.4..-9.5% across three samples on
+the pre-restructure diff (old runner generation); first-element
+hoist + eb_sep2 direct separator write recovered it — with a
+runner-image change landing mid-diagnosis, attribution between
+restructure and hardware is shared, and the recovery held on both
+cells afterward. always_inline on the shared writer was tried and
+REVERTED to plain static inline: gcc -Wattributes rejects
+always_inline on a function that calls eb_put (chains to realloc)
+under warnings-as-errors.

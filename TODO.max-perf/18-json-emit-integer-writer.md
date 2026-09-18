@@ -16,3 +16,8 @@ every JSON-view consumer (CLI, toml-test) rather than the bench.
 Also folds in: `json_string` gets 17's span-batched escaping with
 the JSON predicate (escape `"`, `\`, <0x20; 0x7F passes raw, as
 today).
+
+Status: **SHIPPED (v0.1.23, PR #67).** emit_i64 shared by both
+views (plain static inline — see 17's always_inline note); gates
+held: toml-test 714/0 byte-exact on the runner that compares this
+emitter's output, 73/73 + ASan.
