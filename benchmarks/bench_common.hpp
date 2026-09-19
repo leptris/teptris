@@ -4,10 +4,18 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
-#include <dirent.h>
 #include <string>
-#include <sys/stat.h>
 #include <vector>
+
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <dirent.h>
+#include <sys/stat.h>
+#endif
 
 struct BenchCase {
     std::string name;
@@ -43,13 +51,25 @@ inline double now_ms()
 inline std::vector<BenchCase> load_corpus(const std::string &dir)
 {
     std::vector<BenchCase> cases;
+    std::vector<std::string> names;
+#ifdef _WIN32
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA((dir + "\\*.toml").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) {
+        fprintf(stderr, "cannot open corpus dir %s\n", dir.c_str());
+        return cases;
+    }
+    do {
+        names.push_back(fd.cFileName);
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+#else
     DIR *d = opendir(dir.c_str());
     if (d == NULL) {
         fprintf(stderr, "cannot open corpus dir %s\n", dir.c_str());
         return cases;
     }
     struct dirent *e;
-    std::vector<std::string> names;
     while ((e = readdir(d)) != NULL) {
         std::string n = e->d_name;
         if (n.size() > 5 && n.compare(n.size() - 5, 5, ".toml") == 0) {
@@ -57,6 +77,7 @@ inline std::vector<BenchCase> load_corpus(const std::string &dir)
         }
     }
     closedir(d);
+#endif
     std::sort(names.begin(), names.end());
     for (auto &n : names) {
         FILE *f = fopen((dir + "/" + n).c_str(), "rb");
