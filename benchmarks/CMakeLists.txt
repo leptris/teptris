@@ -36,6 +36,9 @@ endif()
 
 if(EXISTS "${TEPTRIS_EXTERNAL_DIR}/tomlc17/src/tomlc17.c")
     add_library(tomlc17 STATIC "${TEPTRIS_EXTERNAL_DIR}/tomlc17/src/tomlc17.c")
+    # tomlc17 is authored against C11 (bare static_assert); the project
+    # standard is C99, so the competitor gets its own dialect.
+    set_target_properties(tomlc17 PROPERTIES C_STANDARD 11)
     target_include_directories(tomlc17 PUBLIC "${TEPTRIS_EXTERNAL_DIR}/tomlc17/src")
     # tomlc99 exports the same toml_parse/toml_free names with different
     # signatures; rename tomlc17's entries to keep both linkable.
