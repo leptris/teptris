@@ -1,0 +1,55 @@
+# Continuous fuzzing for the C99 parser: a libFuzzer harness round-
+# trips parse -> emit -> re-parse under ASan/UBSan. The invariants
+# are the memory-safety contracts (no crash, no leak), not semantic
+# correctness (toml-test owns that). Nightly + manual dispatch;
+# crashes fail the run and upload the offending inputs.
+name: fuzz
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "fuzz budget in minutes"
+        required: false
+        default: "10"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fuzz:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the harness (clang, fuzzer+address+undefined)
+        run: |
+          clang --version | head -1
+          mkdir -p corpus crashes
+          python3 scripts/gen_bench_corpus.py corpus
+          clang -fsanitize=fuzzer,address,undefined -g -O1 -std=c99 \
+            -Isrc/include -Isrc -o fuzz_parse \
+            test/fuzz/fuzz_parse.c \
+            src/teptris/*.c src/teptris/*/*.c src/teptris/*/*/*.c
+
+      - name: Fuzz
+        run: |
+          MINS="${{ github.event.inputs.minutes || '10' }}"
+          SECS=$((MINS * 60))
+          ./fuzz_parse corpus -max_total_time="$SECS" -timeout=5 \
+            -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
+
+      - name: Upload crash inputs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: crashes/
+          if-no-files-found: ignore
