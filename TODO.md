@@ -22,12 +22,12 @@ Versions remain USER release decisions.
 
 | corpus | pin | standing |
 | --- | --- | --- |
-| unit + inline corpus (offline) | checked in | 58/58 green |
-| ASAN + fuzz smoke | local | clean |
-| toml-test (BurntSushi) | pin at item 07 fetch | pending — 100% valid + invalid target |
-| differential vs tomlrb / tomlib / stdlib tomllib | item 07 | pending |
+| unit + inline corpus (offline) | checked in | 58/58 green (77 with batch/plan suites) |
+| ASAN + fuzz smoke | local | clean; nightly libFuzzer lane (parse→emit→re-parse under ASan/UBSan) |
+| toml-test (BurntSushi) | item 07 fetch | 714/714 on the 1.1 view, 711/711 on 1.0 (`scripts/toml-test-run.sh`) |
+| differential vs tomlrb / tomlib / stdlib tomllib | item 07 | binding parity suites green (teptris-ruby ↔ tomllib, teptris-py ↔ tomllib/tomli); lang-tier lanes re-measure every main push |
 | emitter goldens | item 07 | roundtrip property green; goldens vs tomlrb dumps pending |
-| TSAN | item 02 batch work | pending (one-document-per-thread contract) |
+| TSAN | item 02 batch work | TSAN preset in-tree, suite green (single-threaded contract); CI TSAN lane not wired |
 
 ## Items
 
@@ -40,9 +40,9 @@ Versions remain USER release decisions.
 | 05 | [Emitter: deterministic TOML + typed-JSON dump](TODO.impl/05-emitter.md) | 04 | v1 complete |
 | 06 | [Bindings: teptris-ruby + teptris-py](TODO.impl/06-ruby-binding.md) | 05 | v1 complete — tomlib/tomllib API shapes, parity suites green |
 | 07 | [Conformance: toml-test, differentials, roundtrip, fuzz](TODO.impl/07-conformance.md) | 03, 05 | inline corpus + fuzz smoke done; fetched corpora + differentials pending |
-| 08 | [lutaml-model integration: `:teptris` adapter](TODO.impl/08-lutaml-model.md) | 06 | pending |
+| 08 | [lutaml-model integration: `:teptris` adapter](TODO.impl/08-lutaml-model.md) | 06 | teptris-side complete (Descriptor plan ABI + recipe, load_batch/load_lazy_batch; teptris-ruby#108 closed) — adapter wiring lives in lutaml-model |
 | 09 | [Benchmarks: matrix, CI, ledger](TODO.impl/09-benchmarks.md) | 07 | v1 complete — six-reference matrix, three recorded runs; 186–335 MB/s, 5.2–8.2× best competitor on every shape |
-| 10 | [Packaging, ABI policy, release](TODO.impl/10-packaging.md) | all | v1: repos published (leptris/teptris + bindings), v0.1.0 tagged, release workflows live; install targets/pkg-config pending |
+| 10 | [Packaging, ABI policy, release](TODO.impl/10-packaging.md) | all | v1: repos published (leptris/teptris + bindings), release workflows live; install targets + pkg-config shipped (CMake export + teptris.pc) |
 
 Rules inherited from yeptris: `scripts/validate.sh` is the
 pre-completion gate (warnings-as-errors build → full tests → CLI
