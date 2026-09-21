@@ -28,19 +28,25 @@ endif()
 
 if(TEPTRIS_BUILD_STATIC)
     add_library(teptris STATIC ${TEPTRIS_SOURCES})
-    target_include_directories(teptris PUBLIC $<BUILD_INTERFACE:${teptris_pub_include}>)
+    target_include_directories(teptris PUBLIC
+        $<BUILD_INTERFACE:${teptris_pub_include}>
+        $<INSTALL_INTERFACE:include>)
     target_include_directories(teptris PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_options(teptris PRIVATE ${TEPTRIS_WARN_FLAGS})
+    list(APPEND TEPTRIS_INSTALL_TARGETS teptris)
 endif()
 
 
 if(TEPTRIS_BUILD_SHARED)
     add_library(teptris_shared SHARED ${TEPTRIS_SOURCES})
-    target_include_directories(teptris_shared PUBLIC $<BUILD_INTERFACE:${teptris_pub_include}>)
+    target_include_directories(teptris_shared PUBLIC
+        $<BUILD_INTERFACE:${teptris_pub_include}>
+        $<INSTALL_INTERFACE:include>)
     target_include_directories(teptris_shared PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
     target_compile_options(teptris_shared PRIVATE ${TEPTRIS_WARN_FLAGS})
     set_target_properties(teptris_shared PROPERTIES OUTPUT_NAME teptris
         VERSION ${PROJECT_VERSION} SOVERSION ${PROJECT_VERSION_MAJOR})
+    list(APPEND TEPTRIS_INSTALL_TARGETS teptris_shared)
     # Public decls carry TEPTRIS_API; building the DLL marks them
     # dllexport, which generates the import library directly (works with
     # LTCG, unlike WINDOWS_EXPORT_ALL_SYMBOLS' generated .def).
@@ -82,3 +88,15 @@ if(TEPTRIS_PROFILE_TRAIN)
         endif()
     endforeach()
 endif()
+
+# ---- install + consumer surface (TODO.impl/10) ----
+install(TARGETS ${TEPTRIS_INSTALL_TARGETS}
+        EXPORT teptris-targets
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/include/teptris
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(EXPORT teptris-targets
+        NAMESPACE teptris::
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/teptris)
