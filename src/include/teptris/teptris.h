@@ -91,6 +91,19 @@ TEPTRIS_API teptris_status teptris_parse(const char *data, size_t len,
                              const teptris_options *opts,
                              teptris_document **out);
 
+/* Parse N TOML documents in a single call. Caller pre-allocates
+ * `out_docs[N]` and `out_statuses[N]` and frees each doc with
+ * teptris_document_free. Per-document parse failures are reported
+ * through out_statuses[i] (out_docs[i] is set so the caller can read
+ * the error via teptris_document_error and free). TEPTRIS_ERR_ALLOC
+ * means no documents were created — caller must not free. The `opts`
+ * pointer is shared across the batch. n == 0 is TEPTRIS_OK and a
+ * no-op. */
+TEPTRIS_API teptris_status teptris_parse_batch(
+    const char *const *data, const size_t *lens, size_t n,
+    const teptris_options *opts,
+    teptris_document **out_docs, teptris_status *out_statuses);
+
 /* Memory: frees every allocation reachable from the document. */
 TEPTRIS_API void teptris_document_free(teptris_document *doc);
 

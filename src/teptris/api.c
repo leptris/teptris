@@ -34,6 +34,59 @@ teptris_status teptris_parse(const char *data, size_t len,
     return st;
 }
 
+teptris_status teptris_parse_batch(const char *const *data, const size_t *lens,
+                                   size_t n, const teptris_options *opts,
+                                   teptris_document **out_docs,
+                                   teptris_status *out_statuses)
+{
+    if (n == 0) {
+        return TEPTRIS_OK;
+    }
+    if (data == NULL || lens == NULL || out_docs == NULL ||
+        out_statuses == NULL) {
+        return TEPTRIS_ERR_ARG;
+    }
+    /* Zero the per-doc outputs up front: on the alloc-fail path every
+     * entry must look like "no doc to free" so callers don't double-free
+     * a partial batch. */
+    for (size_t i = 0; i < n; i++) {
+        out_docs[i] = NULL;
+        out_statuses[i] = TEPTRIS_OK;
+    }
+    uint32_t max_depth =
+        (opts != NULL && opts->max_depth != 0) ? opts->max_depth : 512;
+    for (size_t i = 0; i < n; i++) {
+        teptris_document *doc = calloc(1, sizeof(teptris_document));
+        if (doc == NULL) {
+            /* Free any documents we already created; statuses for the
+             * failed slot onward were zero-initialized, so out_statuses
+             * stays consistent. */
+            for (size_t j = 0; j < i; j++) {
+                teptris_arena_destroy(&out_docs[j]->arena);
+                free(out_docs[j]);
+                out_docs[j] = NULL;
+            }
+            return TEPTRIS_ERR_ALLOC;
+        }
+        teptris_arena_init(&doc->arena);
+        doc->max_depth = max_depth;
+        doc->err.status = TEPTRIS_OK;
+        doc->err.message = "";
+        teptris_status st = teptris_parser_run(doc, data[i], lens[i]);
+        if (st != TEPTRIS_OK && doc->err.status == TEPTRIS_OK) {
+            doc->err.status = st;
+            if (st == TEPTRIS_ERR_ALLOC) {
+                snprintf(doc->err_msg, sizeof(doc->err_msg),
+                         "out of memory");
+            }
+            doc->err.message = doc->err_msg;
+        }
+        out_docs[i] = doc;
+        out_statuses[i] = st;
+    }
+    return TEPTRIS_OK;
+}
+
 void teptris_document_free(teptris_document *doc)
 {
     if (doc == NULL) {
