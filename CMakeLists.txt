@@ -9,6 +9,8 @@ project(teptris
     LANGUAGES C CXX
 )
 
+include(GNUInstallDirs)
+
 # C99: the only C11-ism was _Static_assert, now a C99 typedef-array
 # macro that MSVC's C mode also accepts. Widest compiler reach
 # (same standard as libleptris).
@@ -105,3 +107,8 @@ if(BUILD_TESTING)
     enable_testing()
     add_subdirectory(test)
 endif()
+
+# ---- pkg-config consumer surface (TODO.impl/10) ----
+configure_file(cmake/teptris.pc.in cmake/teptris.pc @ONLY)
+install(FILES ${CMAKE_BINARY_DIR}/cmake/teptris.pc
+        DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig)
