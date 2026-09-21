@@ -65,6 +65,22 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  tsan:
+    # The board's TSAN line: the preset is in-tree and green locally;
+    # this lane keeps it honest on CI. Single-threaded suite (the
+    # documented contract is one document per thread) — TSAN here
+    # guards the batch/plan plumbing against accidental sharing.
+    name: tsan (ubuntu-latest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=RelWithDebInfo -DTEPTRIS_ENABLE_TSAN=ON -DBUILD_TESTING=ON -DTEPTRIS_BUILD_CLI=OFF
+      - name: Build
+        run: cmake --build build -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
   conformance:
     name: toml-test (1.1 view)
     runs-on: ubuntu-latest
