@@ -36,6 +36,13 @@ thread contract lands with the batch API).
 | toml-test (BurntSushi) | **100%** — 714/714 on the 1.1 view, 711/711 on the 1.0 view (`scripts/toml-test-run.sh`) |
 | differential vs tomlrb / tomllib | pending (needs item 06 binding) |
 
+## Descriptor plan ABI
+
+Fused schema-descriptor materialization for framework adapters
+(lutaml-model et al.): compile a plan once, walk a document once,
+materialize only the planned keys. C header `src/include/teptris/plan.h`;
+consumer contract and Ruby recipe in [`DESCRIPTOR_ABI.md`](DESCRIPTOR_ABI.md).
+
 ## API shape
 
 ```c
