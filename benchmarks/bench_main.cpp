@@ -62,29 +62,46 @@ struct LibEntry {
     RunFn fn;
 };
 
+// optional 4th argv: comma-separated lib filter ("teptris",
+// "teptris,tomlc99", ...). The CI A/B rounds interleave teptris-only
+// base-vs-head — competitors are pinned sources identical in both
+// trees, so the lane measures them once in a single full-matrix sweep
+// instead of in every round of both trees.
+static bool selected(const std::string &only, const char *name)
+{
+    if (only.empty()) return true;
+    std::string set = "," + only + ",";
+    return set.find("," + std::string(name) + ",") != std::string::npos;
+}
+
 int main(int argc, char **argv)
 {
     std::string dir = (argc > 1) ? argv[1] : "bench-corpus";
     int warmup = (argc > 2) ? atoi(argv[2]) : 2;
     int reps = (argc > 3) ? atoi(argv[3]) : 30;
+    std::string only = (argc > 4) ? argv[4] : "";
 
     std::vector<LibEntry> libs;
-    libs.push_back({"teptris", run_teptris});
+    if (selected(only, "teptris")) libs.push_back({"teptris", run_teptris});
 #ifdef HAVE_TOMLC99
-    libs.push_back({"tomlc99", run_tomlc99});
+    if (selected(only, "tomlc99")) libs.push_back({"tomlc99", run_tomlc99});
 #endif
 #ifdef HAVE_TOML11
-    libs.push_back({"toml11", run_toml11});
+    if (selected(only, "toml11")) libs.push_back({"toml11", run_toml11});
 #endif
 #ifdef HAVE_TOMLPLUS
-    libs.push_back({"tomlplusplus", run_tomlplus});
+    if (selected(only, "tomlplusplus")) libs.push_back({"tomlplusplus", run_tomlplus});
 #endif
 #ifdef HAVE_TOMLC17
-    libs.push_back({"tomlc17", run_tomlc17});
+    if (selected(only, "tomlc17")) libs.push_back({"tomlc17", run_tomlc17});
 #endif
 #ifdef HAVE_CPPTOML
-    libs.push_back({"cpptoml", run_cpptoml});
+    if (selected(only, "cpptoml")) libs.push_back({"cpptoml", run_cpptoml});
 #endif
+    if (libs.empty()) {
+        fprintf(stderr, "lib filter \"%s\" matched nothing\n", only.c_str());
+        return 1;
+    }
 
     std::vector<BenchCase> cases = load_corpus(dir);
     if (cases.empty()) {

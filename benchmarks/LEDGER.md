@@ -443,6 +443,26 @@ trust the reproducing cell). Local darwin: array +220%, int +96%.
 Cascade: v0.1.16 -> teptris-ruby 0.2.26 (8 platforms, engine
 verified 0.1.16 on rubygems) -> teptris-py 0.2.9.
 
+## Lane economics: competitors once (2026-09-23)
+
+Main-push lane walls had grown to 44 min (ubuntu) / 38 (macos).
+Step attribution killed the folklore: the pinned-competitor fetch
++ build cost ~1 min total (not the ~25 the old comment claimed) —
+the Interleaved rounds step itself was 43.6/37.2 min, because on
+main pushes BOTH trees ran the full 6-engine matrix in all three
+rounds. Competitors are pinned sources, byte-identical in base and
+head: ~5/6 of the lane re-measured constants.
+
+Fix: bench_parse grew an optional lib-filter arg (4th argv,
+comma-separated — "teptris" for the A/B rounds); one full-matrix
+sweep from the head tree feeds bench_ab.py --ref for the ratio
+columns (both rA and rB against the same sweep — stricter than
+before, where each tree carried its own identical competitor
+copies). Statistical power of the A/B signal is unchanged: teptris
+base-vs-head, 3 rounds x 10 reps, interleaved. Expected main-push
+lane ~10 min (6 teptris-only invocations ~ seconds + one ~7-min
+sweep); PR lane unchanged.
+
 ## Commands
 
 ```sh
