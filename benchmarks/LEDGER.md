@@ -459,9 +459,13 @@ sweep from the head tree feeds bench_ab.py --ref for the ratio
 columns (both rA and rB against the same sweep — stricter than
 before, where each tree carried its own identical competitor
 copies). Statistical power of the A/B signal is unchanged: teptris
-base-vs-head, 3 rounds x 10 reps, interleaved. Expected main-push
-lane ~10 min (6 teptris-only invocations ~ seconds + one ~7-min
-sweep); PR lane unchanged.
+base-vs-head, 3 rounds x 10 reps, interleaved. Measured on the
+merge run (35795467988): lane 47 -> 8m14s; rounds step 43.6/37.2
+-> 0.1 min, sweep 7.3 (ubuntu) / 7.1 (macos), fetch+build ~1 min.
+Noise-floor check on the same run (base and head engine-identical):
+ubuntu scalar_string -13% vs macos +8% — opposite signs, no
+reproducing cell; the scatter class is unchanged. PR lane A/B
+cells now 22-24 s (was minutes).
 
 ## Commands
 
