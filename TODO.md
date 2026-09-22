@@ -26,7 +26,7 @@ Versions remain USER release decisions.
 | ASAN + fuzz smoke | local | clean; nightly libFuzzer lane (parse→emit→re-parse under ASan/UBSan) |
 | toml-test (BurntSushi) | item 07 fetch | 714/714 on the 1.1 view, 711/711 on 1.0 (`scripts/toml-test-run.sh`) |
 | differential vs tomlrb / tomlib / stdlib tomllib | item 07 | binding parity suites green (teptris-ruby ↔ tomllib, teptris-py ↔ tomllib/tomli); lang-tier lanes re-measure every main push |
-| emitter goldens | item 07 | roundtrip property green; goldens vs tomlrb dumps pending |
+| emitter goldens | item 07 | done — byte-stable goldens + teptris↔tomlib/tomlrb five-way differential (teptris-ruby spec/toml_dump_golden_spec.rb); caught the local-time fraction drop |
 | TSAN | item 02 batch work | TSAN preset in-tree, suite green (single-threaded contract); CI TSAN lane not wired |
 
 ## Items
