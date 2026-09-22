@@ -47,8 +47,11 @@ jobs:
 
       # reference libraries at the ledger pins, so ratio columns are
       # populated — PRs get the fast teptris-only A/B; pushes to main
-      # (and dispatches) also fetch competitors for full ratio tables
-      # (the five external builds add ~25 minutes, too heavy per-PR)
+      # (and dispatches) also fetch competitors for ONE full-matrix
+      # sweep (fetch+build ~1 min, sweep ~7 min). The A/B rounds stay
+      # teptris-only even here: competitors are identical pinned
+      # sources in both trees, so measuring them per round per tree
+      # re-measured constants 6x (that was the 38-44 min lane).
       - name: Fetch pinned reference libraries
         if: github.event_name != 'pull_request' && runner.os != 'Windows'
         run: |
@@ -97,17 +100,25 @@ jobs:
         shell: bash
         run: python3 head/scripts/gen_bench_corpus.py corpus
 
-      - name: Interleaved rounds (A B x3, parse + emit)
+      - name: Interleaved rounds (A B x3, parse + emit, teptris-only)
         shell: bash
         run: |
           EXE=""
           if [ "$RUNNER_OS" = "Windows" ]; then EXE=".exe"; fi
           for r in 1 2 3; do
-            ./base/build/benchmarks/bench_parse"$EXE" corpus 1 10 > "a$r.json"
-            ./head/build/benchmarks/bench_parse"$EXE" corpus 1 10 > "b$r.json"
+            ./base/build/benchmarks/bench_parse"$EXE" corpus 1 10 teptris > "a$r.json"
+            ./head/build/benchmarks/bench_parse"$EXE" corpus 1 10 teptris > "b$r.json"
             ./base/build/benchmarks/bench_emit"$EXE" corpus 1 10 > "ae$r.json"
             ./head/build/benchmarks/bench_emit"$EXE" corpus 1 10 > "be$r.json"
           done
+
+      # ratio columns: one full-matrix run from the head tree — the
+      # competitors are the same pinned builds the rounds would use,
+      # so this single sweep carries all their signal
+      - name: Competitor sweep (one full-matrix run)
+        if: github.event_name != 'pull_request' && runner.os != 'Windows'
+        shell: bash
+        run: ./head/build/benchmarks/bench_parse corpus 1 10 > comp.json
 
       - name: Report
         shell: bash
@@ -116,7 +127,9 @@ jobs:
             echo "## bench A/B (${{ matrix.os }})"
             echo "### parse"
             echo '```'
-            python3 head/scripts/bench_ab.py a1.json a2.json a3.json b1.json b2.json b3.json
+            REF=()
+            if [ -f comp.json ]; then REF=(--ref comp.json); fi
+            python3 head/scripts/bench_ab.py "${REF[@]}" a1.json a2.json a3.json b1.json b2.json b3.json
             echo '```'
             echo "### emit"
             echo '```'
