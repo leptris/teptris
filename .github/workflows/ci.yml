@@ -32,38 +32,38 @@ jobs:
           cd build && ctest --output-on-failure
 
   build-test:
-    name: ${{ matrix.os }} (${{ matrix.build }})
+    # One cell per OS running BOTH builds sequentially (#201-class
+    # wall fix): every job runs in ~1 min; a saturated runner pool
+    # serializes 8 cells into a 38-min wall (measured) where the work
+    # itself is 8 min. 8 slots -> 4, same coverage per OS.
+    name: ${{ matrix.os }} (release + asan)
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, ubuntu-24.04-arm, macos-latest, macos-15-intel]
-        build: [release, asan]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Configure
+      - name: Release build (warning check) + test
         run: |
-          FLAGS=""
-          if [ "${{ matrix.build }}" = "asan" ]; then
-            FLAGS="-fsanitize=address -fno-omit-frame-pointer"
-          fi
+          set -eux
           cmake -B build -S . -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=ON -DTEPTRIS_BUILD_CLI=ON
+          cmake --build build -j 2>&1 | tee /tmp/build.log
+          if grep -iE "warning:" /tmp/build.log; then exit 1; fi
+          ctest --test-dir build --output-on-failure
+
+      - name: ASan build + test
+        run: |
+          set -eux
+          FLAGS="-fsanitize=address -fno-omit-frame-pointer"
+          cmake -B build-asan -S . -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_TESTING=ON -DTEPTRIS_BUILD_CLI=ON \
             -DCMAKE_C_FLAGS="$FLAGS" -DCMAKE_CXX_FLAGS="$FLAGS"
-
-      - name: Build (warning check)
-        if: matrix.build == 'release'
-        run: |
-          cmake --build build -j 2>&1 | tee /tmp/build.log
-          ! grep -iE "warning:" /tmp/build.log
-
-      - name: Build
-        if: matrix.build == 'asan'
-        run: cmake --build build -j
-
-      - name: Test
-        run: ctest --test-dir build --output-on-failure
+          cmake --build build-asan -j
+          ctest --test-dir build-asan --output-on-failure
 
   tsan:
     # The board's TSAN line: the preset is in-tree and green locally;
@@ -72,6 +72,7 @@ jobs:
     # guards the batch/plan plumbing against accidental sharing.
     name: tsan (ubuntu-latest)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - name: Configure
@@ -84,6 +85,7 @@ jobs:
   conformance:
     name: toml-test (1.1 view)
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
