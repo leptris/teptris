@@ -27,7 +27,7 @@ Versions remain USER release decisions.
 | toml-test (BurntSushi) | item 07 fetch | 714/714 on the 1.1 view, 711/711 on 1.0 (`scripts/toml-test-run.sh`) |
 | differential vs tomlrb / tomlib / stdlib tomllib | item 07 | binding parity suites green (teptris-ruby ↔ tomllib, teptris-py ↔ tomllib/tomli); lang-tier lanes re-measure every main push |
 | emitter goldens | item 07 | done — byte-stable goldens + teptris↔tomlib/tomlrb five-way differential (teptris-ruby spec/toml_dump_golden_spec.rb); caught the local-time fraction drop |
-| TSAN | item 02 batch work | TSAN preset in-tree, suite green (single-threaded contract); CI TSAN lane not wired |
+| TSAN | item 02 batch work | TSAN preset in-tree, suite green (single-threaded contract); CI TSAN lane wired and green on every PR (v0.1.27) |
 
 ## Items
 
@@ -39,9 +39,9 @@ Versions remain USER release decisions.
 | 04 | [DOM: compact nodes, ordered tables, O(1) lookup](TODO.impl/04-dom.md) | 02 | v1 complete (node = 64 B; assert in `dom.h`) |
 | 05 | [Emitter: deterministic TOML + typed-JSON dump](TODO.impl/05-emitter.md) | 04 | v1 complete |
 | 06 | [Bindings: teptris-ruby + teptris-py](TODO.impl/06-ruby-binding.md) | 05 | v1 complete — tomlib/tomllib API shapes, parity suites green |
-| 07 | [Conformance: toml-test, differentials, roundtrip, fuzz](TODO.impl/07-conformance.md) | 03, 05 | inline corpus + fuzz smoke done; fetched corpora + differentials pending |
+| 07 | [Conformance: toml-test, differentials, roundtrip, fuzz](TODO.impl/07-conformance.md) | 03, 05 | v1 complete — toml-test 714/714 in CI, nightly libFuzzer lane green, binding parity + emitter goldens green |
 | 08 | [lutaml-model integration: `:teptris` adapter](TODO.impl/08-lutaml-model.md) | 06 | teptris-side complete (Descriptor plan ABI + recipe, load_batch/load_lazy_batch; teptris-ruby#108 closed) — adapter wiring lives in lutaml-model |
-| 09 | [Benchmarks: matrix, CI, ledger](TODO.impl/09-benchmarks.md) | 07 | v1 complete — six-reference matrix, three recorded runs; 186–335 MB/s, 5.2–8.2× best competitor on every shape |
+| 09 | [Benchmarks: matrix, CI, ledger](TODO.impl/09-benchmarks.md) | 07 | v1 complete — six-reference matrix, CI A/B lane on every push (competitors measured once); latest ubuntu lane: 223–386 MB/s parse, 2.9–10.2× best competitor (see benchmarks/LEDGER.md) |
 | 10 | [Packaging, ABI policy, release](TODO.impl/10-packaging.md) | all | v1: repos published (leptris/teptris + bindings), release workflows live; install targets + pkg-config shipped (CMake export + teptris.pc) |
 
 Rules inherited from yeptris: `scripts/validate.sh` is the
