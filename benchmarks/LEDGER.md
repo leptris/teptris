@@ -473,3 +473,36 @@ cells now 22-24 s (was minutes).
 scripts/run_benchmarks.sh        # build-bench + corpus + run + artifact
 build-bench/benchmarks/bench_parse bench-corpus 1 10
 ```
+
+## TODO 12 confirmed — dev-hardware ratios (2026-09-25, darwin/arm64)
+
+The quiet window finally arrived (load 7-10, morning). Same-binary
+noise probe first: 5 rounds x reps-30 on the four gate shapes spread
++/-3% (one +/-7% outlier on cargo) — comparable rounds at last, so
+recording is honest.
+
+Gate protocol: interleaved reps-30, teptris-only filter, 9 rounds
+teptris (v0.1.27 = current main); competitors at the ledger pins
+(tomlc99 29076df, toml11 v4.2.0, tomlplusplus v3.4.0, tomlc17
+d7e91db, cpptoml v0.1.1), 3 rounds x reps-10 (their binaries do not
+change between rounds). Ratio = teptris median / best-competitor
+median per shape:
+
+  mixed       408 MB/s  vs tomlc17   98.7  = 4.13x
+  cargo_like  379 MB/s  vs cpptoml   81.1  = 4.67x
+  deep_tables 418 MB/s  vs tomlc99   84.1  = 4.97x
+  table_heavy 402 MB/s  vs cpptoml   68.8  = 5.84x
+
+The 4x mandate is CONFIRMED on dev hardware for every gate shape.
+The v0.1.19+v0.1.20 projections (mixed ~4.2-4.5x, cargo ~4.1x)
+land within noise: mixed 4.13x sits ~2% under the low projection
+(within the +/-3% floor), cargo exceeds at 4.67x.
+
+Companion measurement (same window, same protocol): the shipped
+levers' dev-hw gain, v0.1.14 -> v0.1.27, interleaved reps-30 x9:
+mixed 337.9 -> 407.5 (+21%), cargo 301.3 -> 378.7 (+26%),
+deep 330.4 -> 418.4 (+27%), table 310.9 -> 402.3 (+29%). Both
+sides' rounds tight (+/-3%); deltas far above the floor.
+
+TODO 12 CLOSES. Every line on the TODO.max-perf board is now
+definitive AND confirmed.
