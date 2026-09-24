@@ -15,3 +15,14 @@ v0.1.14-era binaries, mixed + cargo + deep + table, medians; record
 in benchmarks/LEDGER.md next to the lane numbers. Until then the
 lane's ubuntu cell (sub-1% scatter) is the trusted referee — both
 cells agreed on the shipped levers' target-shape gains.
+
+
+CONFIRMED (2026-09-25, morning quiet window, load 7-10): same-binary
+noise probe +/-3% on all four gate shapes; interleaved reps-30 x9
+teptris vs competitors at the ledger pins (3 rounds x reps-10).
+Dev-hw ratios: mixed 4.13x (tomlc17), cargo 4.67x (cpptoml),
+deep 4.97x (tomlc99), table 5.84x (cpptoml) — the 4x mandate holds
+on every gate shape; the v0.1.19/v0.1.20 projections land within
+noise. Companion: v0.1.14 -> v0.1.27 lever gains +21-29% on the
+same shapes. Full protocol and numbers in benchmarks/LEDGER.md
+("TODO 12 confirmed"). CLOSED.
