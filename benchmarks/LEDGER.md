@@ -506,3 +506,31 @@ sides' rounds tight (+/-3%); deltas far above the floor.
 
 TODO 12 CLOSES. Every line on the TODO.max-perf board is now
 definitive AND confirmed.
+
+## Two measured dead ends (2026-09-26, darwin/arm64)
+
+Hunting the next lever after TODO 12 closed, both candidates profiled,
+implemented, measured, and reverted:
+
+1. SWAR escape-scan in emit_basic_bytes — word-at-a-time (8 bytes,
+   haszero detectors on {low-5-bit-mask, ^0x22, ^0x5C, ^0x7F}) ahead
+   of the byte-refine. Correct (714/714, validate.sh green) and
+   measured a clean WASH: scalar_string emit 2.14 -> 2.14 ms median
+   of 7 interleaved rounds (+/-1%); every other shape within noise;
+   table_heavy -5%. At real string lengths (~30 B) the branch
+   predictor already prices the byte loop at the SWAR prologue's
+   cost, and the scan was never the emit bottleneck.
+
+2. Emit-buffer presize from the parse input length (src_len field on
+   the document; len + len/8 + 256 one-shot reserve for TOML, +50%
+   for typed-JSON). The emit profile showed only ~2% of emit time in
+   the realloc chain — the mass is the memmove of content itself
+   (irreducible) plus the node walk and key handling. Measured
+   +0-2% across all nine shapes; parse unchanged. Reverted: strictly
+   fewer allocations, but not a measurable win, and it coupled the
+   document struct to the emitter.
+
+Standing conclusion: parse_number / table insert / node alloc remain
+the parse floor (the profile's own top frames); emit cost is the data
+movement plus the walk. The plateau is real and now measured from two
+more directions.
