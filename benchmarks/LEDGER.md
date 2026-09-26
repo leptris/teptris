@@ -534,3 +534,24 @@ Standing conclusion: parse_number / table insert / node alloc remain
 the parse floor (the profile's own top frames); emit cost is the data
 movement plus the walk. The plateau is real and now measured from two
 more directions.
+
+## Parse-side dead end: SWAR digit-run scan (2026-09-26, darwin/arm64)
+
+The parse profile's top self-time frame is parse_number (the digit
+loops). Attempted the last untried mechanism there: word-scan the
+digit run with the SWAR all-digits check (xor '0'; a byte is a digit
+iff (d + 0x76..) | d has bit 7 clear — exact for every byte value),
+then accumulate branch- and bound-free over the known span. Capped at
+16 digits to preserve the <= 18 plain path.
+
+Correct (validate.sh, toml-test 714/0) and a clean WASH: 9
+interleaved rounds, scalar_int 393.9 -> 397.7 MB/s (+1.0%, inside the
++/-2% round spread); all other shapes 98.3-102.8% with no consistent
+sign. The branch predictor already prices the per-byte loop at the
+SWAR prologue's cost, and the accumulate itself is a serial
+dependency (mag * 10 + d) no scan can remove.
+
+Reverted. The parse floor — parse_number's serial digit math, table
+insert probing, node allocation — is now confirmed from five
+directions (profile x2, hash-path, fused-line, SWAR-scan). The
+engine has no remaining measured headroom at this architecture.
