@@ -555,3 +555,35 @@ Reverted. The parse floor — parse_number's serial digit math, table
 insert probing, node allocation — is now confirmed from five
 directions (profile x2, hash-path, fused-line, SWAR-scan). The
 engine has no remaining measured headroom at this architecture.
+
+## Binding dead end: local-datetime UTC-offset memo (teptris-ruby,
+## 2026-09-26, darwin/arm64)
+
+The ruby binding's profile-named floor is time_s_mktime — Time.local's
+TZ-database lookup per local-datetime value (~half of time_from_dt on
+datetime_heavy). Attempted to skip it for repeated civil minutes: a
+direct-mapped (date, hour, minute) -> utc-offset memo inside the
+per-load key cache; hits materialize via rb_time_num_new(wall - off,
+off) with no TZ access.
+
+The obvious (date, hour) key is UNSOUND: in half-hour-shift zones
+(Australia/Lord_Howe) a spring-forward gap starts mid-hour, so one
+civil hour holds both gap-normalizing and valid minutes — a bucket hit
+then skips Time.local's gap normalization and shifts the wall clock.
+The sound shape keys at civil-minute granularity (a modern transition
+starts on a whole minute, so the Time.local answer is uniform within
+one minute) and only stores minutes where Time.local preserved the
+wall clock. Validated by a TZ-transition fuzz against the Time.local
+oracle: 9 zones (incl. Lord_Howe, Chatham, Casablanca, St_Johns,
+Kolkata), 2023-2025 both transition seasons, 4 transition hours x all
+minutes, duplicate values forcing memo hits, and a 1500-key single
+load forcing direct-mapped bucket overwrites — every value exact.
+
+Verdict: a consistent ~1% REGRESSION on datetime_heavy (4 interleaved
+rounds, 35.1 -> 35.3 ms best). The gate corpus is near-unique
+timestamps: 19,590 distinct (date, h, min) of 20,001 values = 2.1% hit
+rate, so the sound design's store check (hour+min funcalls per miss)
+taxes 98% of values to accelerate 2% — a ceiling below the noise
+floor. Reverted. Time.local's per-instant TZ lookup stands as the
+binding floor; only documents with dense timestamp repeats could ever
+pay for the memo, and the gate corpus is deliberately not that shape.
