@@ -587,3 +587,39 @@ taxes 98% of values to accelerate 2% — a ceiling below the noise
 floor. Reverted. Time.local's per-instant TZ lookup stands as the
 binding floor; only documents with dense timestamp repeats could ever
 pay for the memo, and the gate corpus is deliberately not that shape.
+
+## Binding dead end: streaming dump API bypassing the builder DOM
+## (teptris, teptris-ruby, 2026-09-27, darwin/arm64)
+
+The dump tier (Ruby object -> TOML) spends ~64% of its wall time
+between the start of the walk and the DOM emit (scalar_int: walk+build
+3.9 ms of 6.05, engine emit alone 2.1). Hypothesis: the intermediate
+builder DOM (node allocs, key strdups, hash inserts with duplicate
+checks the binding never needs — Ruby Hashes cannot hold duplicate
+keys) was the cost, so a push-style streaming API that formats values
+directly from the walk should remove most of it.
+
+Built it properly: a teptris_stream_* engine API on the same
+formatting primitives (single source, same file as the DOM emitter),
+with per-frame deferral buffers reproducing the DOM walk's
+scalars-before-sections canonical order byte for byte; 9 engine
+equivalence tests (stream vs builder->DOM emit, both reparsed);
+binding byte-identical on the full corpus plus structural edge cases;
+full engine VALIDATE OK.
+
+Verdict: a WASH — 4 interleaved rounds, all nine shapes inside +/-3%
+with mixed signs, and a consistent +5-8% REGRESSION on deep_tables
+(the deferral copies: each section subtree is buffered and appended
+per nesting level). Phase instrumentation explains why the hypothesis
+failed: under warm malloc reuse the builder+DOM walk looked expensive
+(2.9 ms), but under benchmark conditions wall time is dominated by
+memory traffic (fresh output-buffer pages per dump, GC pressure) and
+the Ruby-object traversal itself — the intermediate-structure
+bookkeeping was never on the critical path. Reverted on both sides.
+
+PROCESS NOTE: the first A/B read as a wash because the head binary was
+STALE — the compile had failed (forward-declaration errors) but the
+failure was swallowed by grep and both dump paths produce identical
+bytes, so no behavioral check tripped. nm -u for the new symbols
+before benchmarking is now mandatory (second occurrence of this trap;
+the first is recorded 2026-09-26 in the project memory).
