@@ -623,3 +623,29 @@ failure was swallowed by grep and both dump paths produce identical
 bytes, so no behavioral check tripped. nm -u for the new symbols
 before benchmarking is now mandatory (second occurrence of this trap;
 the first is recorded 2026-09-26 in the project memory).
+
+## Binding dead end: Ractor-parallel batch loading (teptris-ruby,
+## 2026-09-30, ubuntu-latest 4-core, ruby 3.4.11)
+
+Ractor-safe marking (teptris-ruby 0.2.51) makes the binding usable
+inside Ractors; the follow-on question was whether a worker pool
+beats sequential loading at batch scale (360 corpus docs). Measured
+via benchmark/ractor_tier.rb on a clean runner:
+
+  sequential      6922 ms
+  load_batch     10886 ms  (1.57x SLOWER — the eager C batch's
+                            scratch/alloc overhead loses even to
+                            per-doc dispatch at this scale)
+  ractors           HUNG   (bounded at 120s by the hardened lane)
+
+The Ractor transfer machinery itself cannot carry materialized
+document graphs on 3.4.11: yield(move: true) SEGFAULTS gc_mark_set
+(from newobj_cache_miss; Ractor remains experimental), and the copy
+transfer wedges — one round hung a runner for 25 minutes, and the
+bounded rerun confirmed HUNG with a dead-worker-tolerant collector.
+The binding is not implicated: single-document load/dump inside a
+Ractor works against the published 0.2.51 gem.
+
+Verdict: sequential per-doc loading is the fastest measured batch
+strategy; revisit when CRuby's Ractor transfers stabilize. The
+dispatchable ractor-bench lane stays for exactly that recheck.
