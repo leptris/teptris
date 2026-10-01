@@ -649,3 +649,28 @@ Ractor works against the published 0.2.51 gem.
 Verdict: sequential per-doc loading is the fastest measured batch
 strategy; revisit when CRuby's Ractor transfers stabilize. The
 dispatchable ractor-bench lane stays for exactly that recheck.
+
+## Binding verdict: threaded parallel batch loading (teptris-ruby,
+## 2026-10-01, ubuntu-latest 4-core, ruby 3.4.11)
+
+The GVL-free parse (PR #135) plus load_batch(threads: N) with
+slice-level release (PR #137) implements parallel loading the way
+stock CRuby supports it - zero-copy thread passing, one GVL crossing
+per slice. Measured on clean CI runners (same-run comparisons,
+best-of-3):
+
+  run A: sequential 5370 ms   threads4 4818 ms   (+10.3%)
+  run B: sequential 6712 ms   threads4 6927 ms   (-3.2%)
+
+The sign flips across runs: the parallel effect is inside the ~+/-25%
+lane noise on GitHub's contended 4-core runners (the known referee
+limit) and cannot be resolved there. The structural bound is real:
+materialization serializes on the GVL, capping the ceiling near
+1.3-1.5x on dedicated cores (parse ~50% of load). What shipped
+anyway, on no-agreed-regression: the GVL-free parse (long single-doc
+loads no longer block the VM), the opt-in threads: knob (threads: 1
+default = byte-identical behavior), and the hardening it forced
+(frozen/chilled inputs, repeated-object pinning, compaction stress).
+Also re-confirmed twice: eager C load_batch is 1.5x SLOWER than a
+sequential per-doc loop at 360-doc scale - sequential remains the
+fastest single-threaded strategy.
