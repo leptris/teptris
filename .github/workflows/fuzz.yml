@@ -38,12 +38,24 @@ jobs:
             -Isrc/include -Isrc -o fuzz_parse \
             test/fuzz/fuzz_parse.c \
             src/teptris/*.c src/teptris/*/*.c src/teptris/*/*/*.c
+          # plan-API harness (teptris#46 surface, the engine half of
+          # both bindings' Descriptor): input parsed, a plan derived
+          # deterministically from the same bytes, walked, every
+          # accessor drained - plan build/walk/view lifetimes under
+          # the same sanitizers
+          clang -fsanitize=fuzzer,address,undefined -g -O1 -std=c99 \
+            -Isrc/include -Isrc -o fuzz_plan \
+            test/fuzz/fuzz_plan.c \
+            src/teptris/*.c src/teptris/*/*.c src/teptris/*/*/*.c
 
       - name: Fuzz
         run: |
           MINS="${{ github.event.inputs.minutes || '10' }}"
           SECS=$((MINS * 60))
-          ./fuzz_parse corpus -max_total_time="$SECS" -timeout=5 \
+          HALF=$((SECS / 2))
+          ./fuzz_parse corpus -max_total_time="$HALF" -timeout=5 \
+            -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
+          ./fuzz_plan corpus -max_total_time="$HALF" -timeout=5 \
             -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
 
       - name: Upload crash inputs
