@@ -1,0 +1,75 @@
+# Weekly toml-test pin freshness check: the conformance suite is
+# pinned to an exact commit in scripts/toml-test-run.sh (a tag lagged
+# 18 commits and one conformance backout behind once - CI and local
+# corpora silently ran different suites behind one number, teptris#97).
+# This lane opens a drift issue whenever upstream main moves past the
+# pin, so bumping becomes a deliberate act instead of an accident.
+name: toml-test-pin-freshness
+
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Count commits upstream of the pin
+        id: pin
+        run: |
+          PIN=$(sed -n 's/^PIN=\([0-9a-f]\{40\}\)$/\1/p' scripts/toml-test-run.sh)
+          if [ -z "$PIN" ]; then
+            echo "PIN not found in scripts/toml-test-run.sh" >&2
+            exit 1
+          fi
+          git clone -q --filter=blob:none \
+            https://github.com/toml-lang/toml-test.git /tmp/tt
+          BEHIND=$(git -C /tmp/tt rev-list --count "$PIN"..origin/main)
+          TIP=$(git -C /tmp/tt rev-parse origin/main)
+          {
+            echo "pin=$PIN"
+            echo "behind=$BEHIND"
+            echo "tip=$TIP"
+          } >> "$GITHUB_OUTPUT"
+          echo "pin $PIN is $BEHIND commits behind upstream main ($TIP)"
+
+      - name: Open or update the drift issue
+        if: steps.pin.outputs.behind != '0'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BEHIND: ${{ steps.pin.outputs.behind }}
+          PIN: ${{ steps.pin.outputs.pin }}
+          TIP: ${{ steps.pin.outputs.tip }}
+        run: |
+          TITLE="toml-test pin is stale"
+          BODY_FILE=$(mktemp)
+          {
+            echo "The pin in \`scripts/toml-test-run.sh\` (\`$PIN\`) is"
+            echo "**$BEHIND commits behind** upstream \`toml-test\` main"
+            echo "(tip \`$TIP\`)."
+            echo
+            echo "Bump \`PIN\` to the tip (or the newest tag if one was"
+            echo "cut since), re-run both views locally, and update the"
+            echo "pass counts in the script comment - the conformance"
+            echo "headline number must always name the suite it ran"
+            echo "against (the teptris#97 lesson)."
+          } > "$BODY_FILE"
+          EXISTING=$(gh issue list -R "$GITHUB_REPOSITORY" \
+            --state open --search "$TITLE" --json number \
+            --jq 'length')
+          if [ "$EXISTING" != "0" ]; then
+            gh issue list -R "$GITHUB_REPOSITORY" --state open \
+              --search "$TITLE" --json number --jq '.[0].number' \
+              | xargs -I{} gh issue comment {} -R "$GITHUB_REPOSITORY" \
+                --body-file "$BODY_FILE"
+          else
+            gh issue create -R "$GITHUB_REPOSITORY" \
+              --title "$TITLE" --body-file "$BODY_FILE"
+          fi
