@@ -83,6 +83,7 @@ jobs:
       - name: Stage DLL for tests (Windows)
         if: runner.os == 'Windows'
         shell: bash
+        working-directory: bindings/rust
         run: |
           for d in $(find target/debug/deps -maxdepth 0 2>/dev/null) target/debug; do
             cp "$TEPTRIS_LIB_PATH/teptris.dll" "$d/" 2>/dev/null || true
