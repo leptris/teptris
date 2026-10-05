@@ -35,6 +35,18 @@ fn main() {
         };
         let dir = dir.canonicalize().unwrap_or(dir);
         let found = if p.is_file() { Some(p) } else { find_lib(&p) };
+        if found.is_none() {
+            // diagnosis: what the resolver actually saw
+            eprintln!(
+                "TEPTRIS_LIB_PATH={path:?} exists={} manifest={manifest:?}",
+                p.exists()
+            );
+            if let Ok(rd) = std::fs::read_dir(&p) {
+                for e in rd.flatten() {
+                    eprintln!("  entry: {}", e.path().display());
+                }
+            }
+        }
         assert!(
             found.is_some(),
             "TEPTRIS_LIB_PATH set but no libteptris shared library found under {path}"
