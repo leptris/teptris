@@ -52,9 +52,13 @@ jobs:
             DLL=$(find build-shared -name "teptris.dll" | head -1)
             echo "DLL resolved: ${DLL:-<none>}"
             [ -n "$DLL" ] || { echo "no teptris.dll produced"; find build-shared -type f | head -30; exit 1; }
-            # ABSOLUTE: build.rs's repo-relative fallback checks the
-            # crate's parent, but a relative path with a msys cwd has
-            # burned rounds - the absolute form skips every fallback
+            # stage NOW with msys paths (the later cygpath -w value is
+            # native-windows and bash cp cannot read it - burned round:
+            # the silent `|| true` hid the no-op copy)
+            mkdir -p bindings/rust/target/debug/deps bindings/rust/target/debug
+            cp "$DLL" bindings/rust/target/debug/deps/
+            cp "$DLL" bindings/rust/target/debug/
+            # ABSOLUTE + native for build.rs/Rust (backslashes)
             echo "TEPTRIS_LIB_PATH=$(cygpath -w "$(dirname "$DLL")")" >> "$GITHUB_ENV"
           else
             echo "TEPTRIS_LIB_PATH=$PWD/build-shared/src" >> "$GITHUB_ENV"
@@ -78,17 +82,8 @@ jobs:
           TEPTRIS_LIB_PATH: ${{ env.TEPTRIS_LIB_PATH }}
         run: cargo test --verbose
 
-      # Windows: the test binaries need the DLL beside them (there is
-      # no rpath on PE) - copy it next to each built test artifact
-      - name: Stage DLL for tests (Windows)
-        if: runner.os == 'Windows'
-        shell: bash
-        working-directory: bindings/rust
-        run: |
-          for d in $(find target/debug/deps -maxdepth 0 2>/dev/null) target/debug; do
-            cp "$TEPTRIS_LIB_PATH/teptris.dll" "$d/" 2>/dev/null || true
-          done
-
+      # Windows: no rpath on PE - the DLL was staged beside the test
+      # binaries during the lib build step
       - name: cargo test (Windows, DLL staged)
         if: runner.os == 'Windows'
         shell: bash
