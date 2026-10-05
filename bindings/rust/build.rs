@@ -38,8 +38,9 @@ fn main() {
         if found.is_none() {
             // diagnosis: what the resolver actually saw
             eprintln!(
-                "TEPTRIS_LIB_PATH={path:?} exists={} manifest={manifest:?}",
-                p.exists()
+                "TEPTRIS_LIB_PATH={path:?} abs={} cwd={:?}",
+                p.display(),
+                env::current_dir().map(|c| c.display().to_string())
             );
             if let Ok(rd) = std::fs::read_dir(&p) {
                 for e in rd.flatten() {
