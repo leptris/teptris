@@ -34,7 +34,7 @@ fn main() {
             p.clone()
         };
         let dir = dir.canonicalize().unwrap_or(dir);
-        let found = if p.is_file() { Some(p) } else { find_lib(&p) };
+        let found = if p.is_file() { Some(p.clone()) } else { find_lib(&p) };
         if found.is_none() {
             // diagnosis: what the resolver actually saw
             eprintln!(
