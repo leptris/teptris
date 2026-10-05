@@ -1,0 +1,75 @@
+name: Rust bindings
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'bindings/rust/**'
+      - '.github/workflows/rust.yml'
+      - 'src/**'
+      - 'src/include/**'
+  pull_request:
+    paths:
+      - 'bindings/rust/**'
+      - '.github/workflows/rust.yml'
+      - 'src/**'
+      - 'src/include/**'
+  workflow_dispatch:
+
+concurrency:
+  group: rust-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: cargo test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build libteptris shared library
+        shell: bash
+        run: |
+          cmake -B build-shared -S . \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DTEPTRIS_BUILD_SHARED=ON \
+            -DTEPTRIS_BUILD_CLI=OFF \
+            -DTEPTRIS_BUILD_STATIC=OFF
+          cmake --build build-shared --config Release
+          LIBDIR="$PWD/build-shared/src"
+          echo "TEPTRIS_LIB_PATH=$LIBDIR" >> "$GITHUB_ENV"
+
+      - name: cargo test
+        shell: bash
+        env:
+          TEPTRIS_LIB_PATH: ${{ env.TEPTRIS_LIB_PATH }}
+        run: |
+          set -x
+          echo "using lib at: $TEPTRIS_LIB_PATH"
+          cargo test --verbose
+
+      # Windows: the test binaries need the DLL beside them (there is
+      # no rpath on PE) - copy it next to each built test artifact
+      - name: Stage DLL for tests (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          for d in $(find target/debug/deps -maxdepth 0 2>/dev/null) target/debug; do
+            cp "$TEPTRIS_LIB_PATH/teptris.dll" "$d/" 2>/dev/null || true
+          done
+
+      - name: cargo test (Windows, DLL staged)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          TEPTRIS_LIB_PATH: ${{ env.TEPTRIS_LIB_PATH }}
+        run: cargo test --verbose
