@@ -41,6 +41,7 @@ jobs:
         run: |
           cmake -B build-shared -S . \
             -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF \
             -DTEPTRIS_BUILD_SHARED=ON \
             -DTEPTRIS_BUILD_CLI=OFF \
             -DTEPTRIS_BUILD_STATIC=OFF
