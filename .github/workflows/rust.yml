@@ -49,7 +49,7 @@ jobs:
           LIBDIR="$PWD/build-shared/src"
           echo "TEPTRIS_LIB_PATH=$LIBDIR" >> "$GITHUB_ENV"
 
-      - name: cargo test
+      - name: cargo build tests
         shell: bash
         working-directory: bindings/rust
         env:
@@ -57,7 +57,15 @@ jobs:
         run: |
           set -x
           echo "using lib at: $TEPTRIS_LIB_PATH"
-          cargo test --verbose
+          cargo test --no-run --verbose
+
+      - name: cargo test
+        if: runner.os != 'Windows'
+        shell: bash
+        working-directory: bindings/rust
+        env:
+          TEPTRIS_LIB_PATH: ${{ env.TEPTRIS_LIB_PATH }}
+        run: cargo test --verbose
 
       # Windows: the test binaries need the DLL beside them (there is
       # no rpath on PE) - copy it next to each built test artifact
