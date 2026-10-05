@@ -18,12 +18,15 @@ fn main() {
     if let Ok(path) = env::var("TEPTRIS_LIB_PATH") {
         let mut p = PathBuf::from(&path);
         if !p.exists() {
+            // this crate sits at bindings/rust: a repo-relative path
+            // resolves against EVERY ancestor of the crate, not just
+            // the parent (the one-level-up probe misses the root)
             if let Ok(manifest) = env::var("CARGO_MANIFEST_DIR") {
-                let repo_relative =
-                    Path::new(&manifest).parent().map(|root| root.join(&p));
-                if let Some(cand) = repo_relative {
+                for anc in Path::new(&manifest).ancestors().skip(1) {
+                    let cand = anc.join(&p);
                     if cand.exists() {
                         p = cand;
+                        break;
                     }
                 }
             }
@@ -34,20 +37,7 @@ fn main() {
             p.clone()
         };
         let dir = dir.canonicalize().unwrap_or(dir);
-        let found = if p.is_file() { Some(p.clone()) } else { find_lib(&p) };
-        if found.is_none() {
-            // diagnosis: what the resolver actually saw
-            eprintln!(
-                "TEPTRIS_LIB_PATH={path:?} abs={} cwd={:?}",
-                p.display(),
-                env::current_dir().map(|c| c.display().to_string())
-            );
-            if let Ok(rd) = std::fs::read_dir(&p) {
-                for e in rd.flatten() {
-                    eprintln!("  entry: {}", e.path().display());
-                }
-            }
-        }
+        let found = if p.is_file() { Some(p) } else { find_lib(&p) };
         assert!(
             found.is_some(),
             "TEPTRIS_LIB_PATH set but no libteptris shared library found under {path}"
