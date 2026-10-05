@@ -51,6 +51,7 @@ jobs:
 
       - name: cargo test
         shell: bash
+        working-directory: bindings/rust
         env:
           TEPTRIS_LIB_PATH: ${{ env.TEPTRIS_LIB_PATH }}
         run: |
@@ -71,6 +72,7 @@ jobs:
       - name: cargo test (Windows, DLL staged)
         if: runner.os == 'Windows'
         shell: bash
+        working-directory: bindings/rust
         env:
           TEPTRIS_LIB_PATH: ${{ env.TEPTRIS_LIB_PATH }}
         run: cargo test --verbose
