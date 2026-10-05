@@ -46,8 +46,14 @@ jobs:
             -DTEPTRIS_BUILD_CLI=OFF \
             -DTEPTRIS_BUILD_STATIC=OFF
           cmake --build build-shared --config Release
-          LIBDIR="$PWD/build-shared/src"
-          echo "TEPTRIS_LIB_PATH=$LIBDIR" >> "$GITHUB_ENV"
+          # MSVC multi-config generators drop the DLL in Release/;
+          # point the resolver at the directory that actually has it
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            DLL=$(find build-shared -name "teptris.dll" | head -1)
+            echo "TEPTRIS_LIB_PATH=$(dirname "$DLL")" >> "$GITHUB_ENV"
+          else
+            echo "TEPTRIS_LIB_PATH=$PWD/build-shared/src" >> "$GITHUB_ENV"
+          fi
 
       - name: cargo build tests
         shell: bash
