@@ -49,7 +49,10 @@ jobs:
           # MSVC multi-config generators drop the DLL in Release/;
           # point the resolver at the directory that actually has it
           if [ "$RUNNER_OS" = "Windows" ]; then
+            find build-shared -name "*.dll" -o -name "*.lib" | head -5 || true
             DLL=$(find build-shared -name "teptris.dll" | head -1)
+            echo "DLL resolved: ${DLL:-<none>}"
+            [ -n "$DLL" ] || { echo "no teptris.dll produced"; find build-shared -type f | head -30; exit 1; }
             echo "TEPTRIS_LIB_PATH=$(dirname "$DLL")" >> "$GITHUB_ENV"
           else
             echo "TEPTRIS_LIB_PATH=$PWD/build-shared/src" >> "$GITHUB_ENV"
