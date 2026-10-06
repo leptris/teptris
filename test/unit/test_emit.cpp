@@ -195,3 +195,71 @@ TEST(Emit, EmittedTomlAlwaysReparses)
             << in;
     }
 }
+
+/* ---- natural-JSON emit (#101 v1) -------------------------------- */
+
+TEST(EmitJsonNatural, ScalarsAndContainers)
+{
+    teptris_document *doc = nullptr;
+    /* the doc's key views point into the parse input: the string
+     * must outlive the document (temporaries dangle) */
+    std::string src =
+        "s = \"x\\\"y\"\ni = 42\nf = 1.5\nb = true\n"
+        "[t]\nk = 1.5\narr = [1, \"two\"]\n";
+    ASSERT_EQ(parse_status(src, &doc), TEPTRIS_OK);
+    DocGuard g(doc);
+    EXPECT_EQ(emit_json_natural(doc),
+              "{\"s\":\"x\\\"y\",\"i\":42,\"f\":1.5,\"b\":true,"
+              "\"t\":{\"k\":1.5,\"arr\":[1,\"two\"]}}");
+}
+
+TEST(EmitJsonNatural, DatetimesRenderAsRfc3339Strings)
+{
+    teptris_document *doc = nullptr;
+    std::string src =
+        "o = 1979-05-27T07:32:00-07:00\n"
+        "l = 1979-05-27T07:32:00\n"
+        "d = 1979-05-27\nt = 07:32:00\n";
+    ASSERT_EQ(parse_status(src, &doc), TEPTRIS_OK);
+    DocGuard g(doc);
+    EXPECT_EQ(emit_json_natural(doc),
+              "{\"o\":\"1979-05-27T07:32:00-07:00\","
+              "\"l\":\"1979-05-27T07:32:00\","
+              "\"d\":\"1979-05-27\",\"t\":\"07:32:00\"}");
+}
+
+TEST(EmitJsonNatural, NonFiniteFloatsBecomeNull)
+{
+    teptris_document *doc = nullptr;
+    std::string src = "a = nan\nb = inf\nc = -inf\n";
+    ASSERT_EQ(parse_status(src, &doc), TEPTRIS_OK);
+    DocGuard g(doc);
+    EXPECT_EQ(emit_json_natural(doc),
+              "{\"a\":null,\"b\":null,\"c\":null}");
+}
+
+TEST(EmitJsonNatural, EmptyDocumentIsEmptyObject)
+{
+    teptris_document *doc = nullptr;
+    std::string src;
+    ASSERT_EQ(parse_status(src, &doc), TEPTRIS_OK);
+    DocGuard g(doc);
+    EXPECT_EQ(emit_json_natural(doc), "{}");
+}
+
+TEST(EmitJsonNatural, RoundTripsThroughConformanceJsonSemantics)
+{
+    /* natural and conformance emits must describe the SAME tree:
+     * key sets and ordering agree even though value shapes differ */
+    teptris_document *doc = nullptr;
+    std::string src = "a = 1\n[t]\nb = [2, 3.5]\n";
+    ASSERT_EQ(parse_status(src, &doc), TEPTRIS_OK);
+    DocGuard g(doc);
+    EXPECT_EQ(emit_json_natural(doc),
+              "{\"a\":1,\"t\":{\"b\":[2,3.5]}}");
+    EXPECT_EQ(emit_json(doc),
+              "{\"a\":{\"type\":\"integer\",\"value\":\"1\"},"
+              "\"t\":{\"b\":["
+              "{\"type\":\"integer\",\"value\":\"2\"},"
+              "{\"type\":\"float\",\"value\":\"3.5\"}]}}");
+}

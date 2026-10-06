@@ -8,4 +8,7 @@ teptris_status teptris_emit_document(const teptris_document *doc, char **buf,
 teptris_status teptris_emit_document_json(const teptris_document *doc,
                                           char **buf, size_t *len);
 
+teptris_status teptris_emit_document_json_natural(
+    const teptris_document *doc, char **buf, size_t *len);
+
 #endif /* TEPTRIS_EMITTER_H */

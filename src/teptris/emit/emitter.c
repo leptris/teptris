@@ -699,6 +699,78 @@ static void emit_json_value(ebuf *b, const teptris_node *n)
     }
 }
 
+/* Natural-JSON emit (#101 v1): host-shaped values instead of the
+ * toml-test dialect - real numbers, booleans as JSON booleans,
+ * datetimes as RFC 3339 strings (offset form carries its offset).
+ * The two lossy spots are deliberate and documented in the header:
+ * non-finite floats become null (JSON has no nan/inf), and the
+ * datetime KIND is not distinguishable from a same-shaped string. */
+static void emit_json_nat_value(ebuf *b, const teptris_node *n)
+{
+    switch (n->kind) {
+    case TEPTRIS_TABLE:
+        eb_c(b, '{');
+        for (size_t i = 0; i < n->as.table.len; i++) {
+            if (i > 0) {
+                eb_c(b, ',');
+            }
+            json_string(b, n->as.table.entries[i].key);
+            eb_c(b, ':');
+            emit_json_nat_value(b, n->as.table.entries[i].value);
+        }
+        eb_c(b, '}');
+        break;
+    case TEPTRIS_ARRAY:
+        eb_c(b, '[');
+        for (size_t i = 0; i < n->as.array.len; i++) {
+            if (i > 0) {
+                eb_c(b, ',');
+            }
+            emit_json_nat_value(b, n->as.array.items[i]);
+        }
+        eb_c(b, ']');
+        break;
+    case TEPTRIS_STRING:
+        json_string(b, n->as.str);
+        break;
+    case TEPTRIS_INTEGER:
+        emit_i64(b, n->as.i);
+        break;
+    case TEPTRIS_FLOAT:
+        if (isnan(n->as.f) || isinf(n->as.f)) {
+            eb_str(b, "null");
+        } else {
+            emit_float(b, n->as.f);
+        }
+        break;
+    case TEPTRIS_BOOLEAN:
+        eb_str(b, n->as.b ? "true" : "false");
+        break;
+    default:
+        eb_c(b, '"');
+        emit_dt(b, &n->as.dt, (teptris_kind)n->kind);
+        eb_c(b, '"');
+    }
+}
+
+teptris_status teptris_emit_document_json_natural(
+    const teptris_document *doc, char **buf, size_t *len)
+{
+    if (doc == NULL || doc->root == NULL) {
+        return TEPTRIS_ERR_ARG;
+    }
+    ebuf b = {0, 0, 0, TEPTRIS_OK};
+    eb_reserve(&b, 256);
+    emit_json_nat_value(&b, doc->root);
+    if (b.st != TEPTRIS_OK) {
+        return b.st;
+    }
+    eb_c(&b, '\0');
+    *buf = b.p;
+    *len = b.len - 1;
+    return TEPTRIS_OK;
+}
+
 teptris_status teptris_emit_document_json(const teptris_document *doc,
                                           char **buf, size_t *len)
 {
