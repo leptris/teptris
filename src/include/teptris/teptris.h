@@ -142,6 +142,16 @@ TEPTRIS_API teptris_status teptris_document_emit(const teptris_document *doc,
 TEPTRIS_API teptris_status teptris_document_emit_json(const teptris_document *doc,
                                           char **buf, size_t *len);
 
+/* Natural-JSON emit: host-shaped values - real numbers, JSON
+ * booleans, datetimes as RFC 3339 strings (offset form carries its
+ * offset; the four TOML datetime shapes render date, time,
+ * date-time, and offset date-time). Two deliberate, lossy mappings:
+ * non-finite floats (TOML allows nan/inf) become null, and a
+ * datetime is indistinguishable from a same-shaped JSON string.
+ * Memory: *buf is malloc'd; caller frees with free(). */
+TEPTRIS_API teptris_status teptris_document_emit_json_natural(
+    const teptris_document *doc, char **buf, size_t *len);
+
 /* Bulk drain for FFI/ctypes bindings: the whole tree in ONE crossing as
  * a self-describing flat buffer (explicit little-endian):
  *   table  0x01 u32 n *(u32 klen key node)

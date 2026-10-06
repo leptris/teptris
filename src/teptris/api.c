@@ -218,6 +218,12 @@ teptris_status teptris_document_emit_json(const teptris_document *doc,
     return teptris_emit_document_json(doc, buf, len);
 }
 
+teptris_status teptris_document_emit_json_natural(
+    const teptris_document *doc, char **buf, size_t *len)
+{
+    return teptris_emit_document_json_natural(doc, buf, len);
+}
+
 /* --------------------------------------------------- bulk flatten ----- */
 
 typedef struct {

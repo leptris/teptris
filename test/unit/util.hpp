@@ -55,6 +55,19 @@ inline std::string emit_json(teptris_document *doc)
     return s;
 }
 
+inline std::string emit_json_natural(teptris_document *doc)
+{
+    char *buf = nullptr;
+    size_t len = 0;
+    if (teptris_document_emit_json_natural(doc, &buf, &len) !=
+        TEPTRIS_OK) {
+        return "<emit-failed>";
+    }
+    std::string s(buf, len);
+    free(buf);
+    return s;
+}
+
 inline std::string emit_toml(teptris_document *doc)
 {
     char *buf = nullptr;
