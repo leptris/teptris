@@ -674,3 +674,37 @@ default = byte-identical behavior), and the hardening it forced
 Also re-confirmed twice: eager C load_batch is 1.5x SLOWER than a
 sequential per-doc loop at 360-doc scale - sequential remains the
 fastest single-threaded strategy.
+
+## Emit mode baselines: natural JSON is the fastest emit (teptris,
+## 2026-10-08, darwin/arm64, apple clang -O2)
+
+teptris_document_emit_json_natural (0.3.0) had shipped without a
+measurement. bench_emit now times all three modes per corpus shape
+(min of 30 reps); the natural path leads everywhere:
+
+  shape           toml    json(conf)  json_natural   nat/conf
+  array_heavy      600.6     327.3       605.9        1.85
+  cargo_like       504.4     529.8       671.3        1.27
+  datetime_heavy   758.2     531.9       967.4        1.82
+  deep_tables      496.9     583.6       680.2        1.17
+  mixed            364.3     340.3       439.9        1.29
+  scalar_float     264.0     257.3       285.9        1.11
+  scalar_int       531.6     459.7       644.6        1.40
+  scalar_string    617.8     680.4       765.8        1.13
+  table_heavy      338.2     350.2       446.1        1.27
+  (MB/s of INPUT doc; conf = teptris_document_emit_json)
+
+Conclusions: (1) natural JSON beats conformance JSON on every shape
+(+11-85%), most on the types the conformance dialect prices dearest -
+floats pay the "\"value\":\"...\"" quoting machinery and datetimes pay
+the type-tag wrapper that natural mode skips (datetime_heavy: +82%).
+(2) Natural matches or beats TOML re-emit on 8/9 shapes (only
+array_heavy at parity) - emitting a lossy JSON view is CHEAPER than
+canonical TOML. (3) Conformance JSON is the slowest mode on 6/9
+shapes; it exists for toml-test round-trips, not for hosts. Hosts
+already on natural mode (wasm, and the 0.3.x binding JSON lane) are
+on the fast path. A synthetic 6 MB / 52k-table attr-shaped doc
+reproduced the ordering at larger scale: natural 13.1 ms / conf
+27.4 ms / TOML 16.0 ms. No engine change shipped with this - the
+mode was already the right call; the guard now proves it
+continuously.
