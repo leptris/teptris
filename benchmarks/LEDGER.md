@@ -740,3 +740,33 @@ ruby/python/rust bindings), not raw JS dominance. (3) dumpJson vs
 native JSON.stringify: 3-6x slower - same verdict as the ruby and
 python tiers; the platform's JSON writer is unbeatable at its own
 game, the API's value is the one-pass TOML->JSON contract.
+
+## Binding tier: Rust (teptris-rs vs the toml crate, 2026-10-12,
+## darwin/arm64, best-of-40)
+
+The last unmeasured binding tier. Comparator: toml-rs 0.8 (the
+ecosystem standard, serde-based) over the engine bench corpus; the
+bench lives in teptris-rs (benches/tier.rs, cargo bench --bench
+tier, CI report-only on ubuntu).
+
+  shape            loads tep / toml   dumps tep / toml
+  array_heavy       2.57 /  84.42      2.38 / 11.73
+  cargo_like        2.29 /  12.42      1.96 / 11.68
+  datetime_heavy    3.79 / 168.89      5.03 / 33.22
+  deep_tables       1.52 /  10.82      1.10 /  8.53
+  mixed             2.78 /  19.42      2.72 / 14.40
+  scalar_float      6.59 / 219.99     11.40 / 35.44
+  scalar_int        6.25 / 278.52      7.44 / 34.84
+  scalar_string     5.58 /  24.39      5.05 / 20.26
+  table_heavy       7.36 /  57.61      7.89 / 38.20
+
+Conclusions: teptris-rs is 7-45x faster on loads and 3-8x on
+dumps — the widest gap of any tier the family measures (the ruby
+tier runs 3-8x over tomlib; the py tier 4.8-6x rtoml; the JS tier
+is only parity-class with smol-toml). The rust tier has no
+language-boundary tax comparable to the wasm bridge or the
+datetime-heavy Time conversions in ruby: loads is C parse +
+zero-copy Rust materialization, so the engine's margin passes
+through almost intact. Every binding tier is now measured:
+engine (parse five-way floor + three emit modes), ruby, python,
+rust, and JS.
