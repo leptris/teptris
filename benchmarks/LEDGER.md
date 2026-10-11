@@ -708,3 +708,35 @@ reproduced the ordering at larger scale: natural 13.1 ms / conf
 27.4 ms / TOML 16.0 ms. No engine change shipped with this - the
 mode was already the right call; the guard now proves it
 continuously.
+
+## Binding tier: JS (teptris-wasm vs the JS ecosystem, 2026-10-10,
+## darwin/arm64, node 24, best-of-40)
+
+The family's last unmeasured tier. Comparators: @iarna/toml (the
+ecosystem standard) and smol-toml (the modern fast pure-JS parser)
+over the engine bench corpus; the lane lives in teptris-wasm
+(benchmark/js_tier.mjs, CI report-only).
+
+  loads (ms)      teptris   @iarna   smol
+  datetime_heavy    21.45    56.64   32.38   teptris 1.5x over smol
+  deep_tables        3.83    15.96    4.62   teptris
+  scalar_int        59.76   236.52   60.37   teptris ~ties smol
+  scalar_float      41.16   100.36   46.94   teptris
+  scalar_string     55.73    65.72   14.46   smol 3.9x over teptris
+  table_heavy       47.63   169.63   39.68   smol 1.2x
+  array_heavy       10.01    reject    8.28  smol 1.2x
+  mixed              7.79    reject    6.07  smol 1.3x
+  cargo_like         6.89    12.61    4.31   smol 1.6x
+
+Conclusions: (1) 2-4x over @iarna/toml everywhere it parses at
+all - and it REJECTS two legal-TOML-1.0 corpus shapes (it still
+enforces a pre-1.0 single-type-array rule; reported as 'reject',
+not skipped). (2) Roughly parity with smol-toml: teptris wins the
+datetime/deep shapes; smol wins string-heavy inputs, where the
+wasm->JS bridge prices every string (natural-JSON emit ->
+UTF8ToString -> JSON.parse). The JS tier's edge is engine
+correctness (full TOML 1.1 draft grammar, behavior parity with the
+ruby/python/rust bindings), not raw JS dominance. (3) dumpJson vs
+native JSON.stringify: 3-6x slower - same verdict as the ruby and
+python tiers; the platform's JSON writer is unbeatable at its own
+game, the API's value is the one-pass TOML->JSON contract.
