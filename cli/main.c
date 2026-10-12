@@ -11,6 +11,9 @@ static void usage(FILE *out, const char *prog)
             "\n"
             "commands:\n"
             "  parse|to-json   parse and dump the typed-JSON tree\n"
+            "    --natural     dump natural JSON instead (real numbers,\n"
+            "                  booleans, RFC 3339 datetime strings;\n"
+            "                  non-finite floats become null)\n"
             "  format          parse and re-emit canonical TOML\n"
             "  validate        exit 0 when valid, 1 with line:col otherwise\n"
             "  version         print the library version\n"
@@ -82,7 +85,19 @@ int main(int argc, char **argv)
         return 2;
     }
 
-    const char *path = (argc > 2) ? argv[2] : "-";
+    int natural = 0;
+    const char *path = "-";
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--natural") == 0) {
+            natural = 1;
+        } else {
+            path = argv[i];
+        }
+    }
+    if (natural && strcmp(cmd, "to-json") != 0) {
+        fprintf(stderr, "teptris: --natural applies to to-json only\n");
+        return 2;
+    }
     size_t len = 0;
     char *data = read_all(path, &len);
     if (data == NULL) {
@@ -106,7 +121,10 @@ int main(int argc, char **argv)
     if (strcmp(cmd, "parse") == 0 || strcmp(cmd, "to-json") == 0) {
         char *buf = NULL;
         size_t blen = 0;
-        if (teptris_document_emit_json(doc, &buf, &blen) == TEPTRIS_OK) {
+        teptris_status est = natural
+            ? teptris_document_emit_json_natural(doc, &buf, &blen)
+            : teptris_document_emit_json(doc, &buf, &blen);
+        if (est == TEPTRIS_OK) {
             fwrite(buf, 1, blen, stdout);
             putchar('\n');
             free(buf);

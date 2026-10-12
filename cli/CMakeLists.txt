@@ -9,3 +9,6 @@ else()
 endif()
 target_compile_options(teptris_cli PRIVATE ${TEPTRIS_WARN_FLAGS})
 set_target_properties(teptris_cli PROPERTIES OUTPUT_NAME teptris)
+
+# the tool belongs on the PATH next to the library (cmake --install)
+install(TARGETS teptris_cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
