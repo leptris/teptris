@@ -32,3 +32,16 @@ add_executable(test_unit
 target_link_libraries(test_unit PRIVATE teptris GTest::gtest_main)
 target_include_directories(test_unit PRIVATE ${CMAKE_SOURCE_DIR}/src)
 gtest_discover_tests(test_unit DISCOVERY_TIMEOUT 60)
+
+# CLI smoke: the binary ships in every CI lane (TEPTRIS_BUILD_CLI=ON);
+# these ctest cases assert exit codes and output shapes without a
+# shell (cmake -P script mode runs on every platform).
+if(TARGET teptris_cli)
+    foreach(case version to_json_natural to_json_conformance natural_rejects_on_format)
+        add_test(NAME cli_${case}
+                 COMMAND ${CMAKE_COMMAND}
+                         -DCLI=$<TARGET_FILE:teptris_cli>
+                         -DCASE=${case}
+                         -P ${CMAKE_SOURCE_DIR}/test/cli_check.cmake)
+    endforeach()
+endif()
