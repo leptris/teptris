@@ -21,19 +21,25 @@ import json
 import statistics
 
 
-def agg(data, i, ref):
+def agg(data, i, ref, metric="mb_per_s"):
     vals, rats = [], []
     for d in data:
         f = d["files"][i]
-        t = f["libs"]["teptris"]["mb_per_s"]
+        if metric not in f["libs"]["teptris"]:
+            return None
+        t = f["libs"]["teptris"][metric]
         vals.append(t)
-        denom = best_competitor(ref["files"][i] if ref else f)
+        denom = best_competitor(ref["files"][i] if ref else f, metric)
         rats.append(t / denom if denom == denom else float("nan"))
     return vals, rats
 
 
-def best_competitor(f):
-    best = [x["mb_per_s"] for k, x in f["libs"].items() if k != "teptris"]
+def best_competitor(f, metric="mb_per_s"):
+    best = [
+        x[metric]
+        for k, x in f["libs"].items()
+        if k != "teptris" and metric in x
+    ]
     return max(best) if best else float("nan")
 
 
@@ -51,6 +57,15 @@ def main():
     B = [json.load(open(p)) for p in args.jsons[n:]]
     ref = json.load(open(args.ref)) if args.ref else None
     shapes = [f["name"] for f in A[0]["files"]]
+    # emit runs carry the per-mode columns (bench_emit): report the
+    # TOML mode on the main table and each extra mode that is present
+    # in BOTH trees, so a natural-JSON regression surfaces per PR.
+    extra_metrics = [
+        m
+        for m in ("json_mb_per_s", "json_nat_mb_per_s")
+        if m in A[0]["files"][0]["libs"]["teptris"]
+        and m in B[0]["files"][0]["libs"]["teptris"]
+    ]
     print(f"{'shape':<20} {'A med':>6} {'B med':>6} {'delta':>7}  {'rA':>5} {'rB':>5}")
     for i, s in enumerate(shapes):
         av, ar = agg(A, i, ref)
@@ -62,6 +77,15 @@ def main():
         print(f"{s:<20} {ma:6.0f} {mb:6.0f} {mb / ma:6.1%}  {rtxt}")
         print(f"{'':>20} A={','.join(f'{v:.0f}' for v in av)}"
               f"  B={','.join(f'{v:.0f}' for v in bv)}")
+    for metric in extra_metrics:
+        print(f"\n[{metric}]")
+        for i, s in enumerate(shapes):
+            av, _ = agg(A, i, ref, metric)
+            bv, _ = agg(B, i, ref, metric)
+            ma, mb = statistics.median(av), statistics.median(bv)
+            print(f"{s:<20} {ma:6.0f} {mb:6.0f} {mb / ma:6.1%}")
+            print(f"{'':>20} A={','.join(f'{v:.0f}' for v in av)}"
+                  f"  B={','.join(f'{v:.0f}' for v in bv)}")
     src = f"--ref {args.ref}" if ref else "per-round competitor entries"
     print(f"\n(rA/rB = teptris vs best competitor, {src}; per-round values")
     print(" shown so scatter is visible — deltas inside the A/B round")
