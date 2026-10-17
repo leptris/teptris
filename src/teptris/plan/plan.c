@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "teptris/dom/dom.h"
+#include <stdio.h>
 #include "teptris/plan.h"
 
 typedef struct plan_row {
@@ -85,6 +86,46 @@ teptris_plan *teptris_plan_build(const teptris_plan_spec *spec,
         memcpy(p->rows[i].name, r->name, nlen);
         p->rows[i].kind = r->kind;
         p->rows[i].sub = r->sub;
+    }
+    /* Depth gate (rows are validated above: sub < plan_count). BFS
+     * from the root relaxes depths in one ascending pass — sub-plans
+     * always lay out after their parent. walk_table recurses per
+     * NESTED level, so an unbounded hostile plan would crash the
+     * host's stack; the parser and builder share the 512 ceiling. */
+    /* entries, not bytes — the byte-sized malloc here is the same
+     * overflow the ruby plan_build hit (documented there) */
+    uint32_t *depths = malloc(p->plan_count * sizeof(*depths));
+    if (depths == NULL) {
+        teptris_plan_free(p);
+        *status = TEPTRIS_ERR_ALLOC;
+        return NULL;
+    }
+    memset(depths, 0, p->plan_count * sizeof(*depths));
+    for (uint32_t pi = 0; pi < p->plan_count; pi++) {
+        uint32_t lo = p->first_row[pi];
+        uint32_t hi = p->first_row[pi + 1];
+        for (uint32_t ri = lo; ri < hi; ri++) {
+            if (p->rows[ri].kind == TEPTRIS_PLAN_NESTED) {
+                uint32_t sub = p->rows[ri].sub;
+                if (depths[sub] <= depths[pi] + 1) {
+                    depths[sub] = depths[pi] + 1;
+                }
+            }
+        }
+    }
+    int too_deep = 0;
+    for (uint32_t pi = 0; pi < p->plan_count; pi++) {
+        fprintf(stderr, "DBG depths[%u]=%u first=%u\n", pi, depths[pi],
+                p->first_row[pi]);
+        if (depths[pi] > TEPTRIS_PLAN_MAX_DEPTH) {
+            too_deep = 1;
+        }
+    }
+    free(depths);
+    if (too_deep) {
+        teptris_plan_free(p);
+        *status = TEPTRIS_ERR_ARG;
+        return NULL;
     }
     *status = TEPTRIS_OK;
     return p;
