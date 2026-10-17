@@ -47,15 +47,26 @@ jobs:
             -Isrc/include -Isrc -o fuzz_plan \
             test/fuzz/fuzz_plan.c \
             src/teptris/*.c src/teptris/*/*.c src/teptris/*/*/*.c
+          # builder/emitter harness (the bindings' dump path): input
+          # bytes drive a builder op sequence, then every emitter view
+          # (TOML, both JSONs) and flatten of the built document is
+          # produced - builder stack, emitter escaping and buffer
+          # growth under the same sanitizers
+          clang -fsanitize=fuzzer,address,undefined -g -O1 -std=c99 \
+            -Isrc/include -Isrc -o fuzz_dump \
+            test/fuzz/fuzz_dump.c \
+            src/teptris/*.c src/teptris/*/*.c src/teptris/*/*/*.c
 
       - name: Fuzz
         run: |
           MINS="${{ github.event.inputs.minutes || '10' }}"
           SECS=$((MINS * 60))
-          HALF=$((SECS / 2))
-          ./fuzz_parse corpus -max_total_time="$HALF" -timeout=5 \
+          THIRD=$((SECS / 3))
+          ./fuzz_parse corpus -max_total_time="$THIRD" -timeout=5 \
             -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
-          ./fuzz_plan corpus -max_total_time="$HALF" -timeout=5 \
+          ./fuzz_plan corpus -max_total_time="$THIRD" -timeout=5 \
+            -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
+          ./fuzz_dump corpus -max_total_time="$THIRD" -timeout=5 \
             -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
 
       - name: Upload crash inputs
