@@ -48,8 +48,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         uint8_t op = data[pos];
         uint8_t klen = data[pos + 1];
         pos += 2;
-        char key[255];
+        char key[256];
         if (klen) {
+            if (klen > size - pos) klen = (uint8_t)(size - pos);
             memcpy(key, data + pos, klen);
             key[klen] = '\0';
         }
