@@ -146,8 +146,10 @@ teptris_status teptris_dom_table_insert_slot(teptris_document *doc,
             if (ne == NULL) {
                 return TEPTRIS_ERR_ALLOC;
             }
-            memcpy(ne, t->as.table.entries,
-                   t->as.table.len * sizeof(teptris_entry));
+            if (t->as.table.len > 0) {
+                memcpy(ne, t->as.table.entries,
+                       t->as.table.len * sizeof(teptris_entry));
+            }
             t->as.table.entries = ne;
         }
         t->as.table.cap = ncap;
@@ -181,8 +183,10 @@ teptris_status teptris_dom_array_push(teptris_document *doc, teptris_node *a,
             if (ni == NULL) {
                 return TEPTRIS_ERR_ALLOC;
             }
-            memcpy(ni, a->as.array.items,
-                   a->as.array.len * sizeof(teptris_node *));
+            if (a->as.array.len > 0) {
+                memcpy(ni, a->as.array.items,
+                       a->as.array.len * sizeof(teptris_node *));
+            }
             a->as.array.items = ni;
         }
         a->as.array.cap = ncap;
