@@ -147,6 +147,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         teptris_document *d2 = NULL;
         if (teptris_document_emit(doc, &buf, &len) == TEPTRIS_OK && buf) {
             (void)teptris_parse(buf, len, NULL, &d2);
+            if (d2 != NULL) teptris_document_free(d2);
             free(buf);
             buf = NULL;
         }
