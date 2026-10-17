@@ -149,3 +149,50 @@ TEST(Plan, RawNestedCollectionCombo)
 }
 
 } // namespace
+
+/* A plan deeper than TEPTRIS_PLAN_MAX_DEPTH is rejected at build —
+ * walk_table recurses per NESTED level, so an unbounded hostile plan
+ * would crash the host's stack. */
+TEST(PlanDepth, DeepPlanIsRejected)
+{
+    /* a valid chain: plan i's row -> plan i+1; depth = 600 > 512 */
+    const uint32_t count = 601;
+    std::vector<teptris_plan_row> rows;
+    std::vector<uint32_t> first;
+    first.push_back(0);
+    for (uint32_t i = 0; i < count - 1; i++) {
+        rows.push_back({"k", TEPTRIS_PLAN_NESTED, i + 1});
+        first.push_back((uint32_t)rows.size());
+    }
+    rows.push_back({"leaf", TEPTRIS_PLAN_SCALAR, 0});
+    first.push_back((uint32_t)rows.size());
+
+    teptris_plan_spec spec = {TEPTRIS_PLAN_ABI_VERSION, count, rows.data(),
+                              first.data()};
+    teptris_status st = TEPTRIS_OK;
+    teptris_plan *p = teptris_plan_build(&spec, &st);
+    EXPECT_EQ(p, nullptr);
+    EXPECT_EQ(st, TEPTRIS_ERR_ARG);
+}
+
+TEST(PlanDepth, ShallowPlanStillBuilds)
+{
+    const uint32_t count = 9; /* depth 8, well under the cap */
+    std::vector<teptris_plan_row> rows;
+    std::vector<uint32_t> first;
+    first.push_back(0);
+    for (uint32_t i = 0; i < count - 1; i++) {
+        rows.push_back({"k", TEPTRIS_PLAN_NESTED, i + 1});
+        first.push_back((uint32_t)rows.size());
+    }
+    rows.push_back({"leaf", TEPTRIS_PLAN_SCALAR, 0});
+    first.push_back((uint32_t)rows.size());
+
+    teptris_plan_spec spec = {TEPTRIS_PLAN_ABI_VERSION, count, rows.data(),
+                              first.data()};
+    teptris_status st = TEPTRIS_OK;
+    teptris_plan *p = teptris_plan_build(&spec, &st);
+    EXPECT_NE(p, nullptr);
+    EXPECT_EQ(st, TEPTRIS_OK);
+    teptris_plan_free(p);
+}

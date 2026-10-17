@@ -11,6 +11,10 @@ extern "C" {
 
 #define TEPTRIS_PLAN_ABI_VERSION 1
 
+/* walk_table recurses per NESTED level; plans deeper than this are
+ * rejected at build (the parser and builder share the 512 ceiling). */
+#define TEPTRIS_PLAN_MAX_DEPTH 512
+
 typedef struct teptris_plan teptris_plan;
 typedef struct teptris_plan_result teptris_plan_result;
 
