@@ -173,8 +173,6 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             (void)sb.data;
         }
         teptris_document_free(doc);
-    } else {
-        teptris_builder_free(b);
     }
     free(sb.data);
     return 0;
