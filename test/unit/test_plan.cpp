@@ -1,6 +1,12 @@
 /* Plan-walk coverage (teptris#46): build a plan, walk a document,
  * verify skip/missing/nested/collection/raw semantics by row index. */
+#include <cstdio>
 #include <cstring>
+#ifdef _WIN32
+#include <io.h>
+#else
+#include <unistd.h>
+#endif
 
 #include "teptris/dom/dom.h"
 #include "teptris/plan.h"
@@ -194,5 +200,65 @@ TEST(PlanDepth, ShallowPlanStillBuilds)
     teptris_plan *p = teptris_plan_build(&spec, &st);
     EXPECT_NE(p, nullptr);
     EXPECT_EQ(st, TEPTRIS_OK);
+    teptris_plan_free(p);
+}
+
+TEST(PlanDepth, BuildWritesNothingToStderr)
+{
+    /* a library never writes to stderr on its normal paths — a debug
+     * fprintf shipped inside the depth gate (2026-10-18) and spammed
+     * every binding host per plan row */
+    const uint32_t count = 9;
+    std::vector<teptris_plan_row> rows;
+    std::vector<uint32_t> first;
+    first.push_back(0);
+    for (uint32_t i = 0; i < count - 1; i++) {
+        rows.push_back({"k", TEPTRIS_PLAN_NESTED, i + 1});
+        first.push_back((uint32_t)rows.size());
+    }
+    rows.push_back({"leaf", TEPTRIS_PLAN_SCALAR, 0});
+    first.push_back((uint32_t)rows.size());
+    teptris_plan_spec spec = {TEPTRIS_PLAN_ABI_VERSION, count, rows.data(),
+                              first.data()};
+
+    fflush(stderr);
+    int saved = dup(fileno(stderr));
+    ASSERT_NE(saved, -1);
+    FILE *cap = tmpfile();
+    ASSERT_NE(cap, nullptr);
+    dup2(fileno(cap), fileno(stderr));
+
+    teptris_status st = TEPTRIS_OK;
+    teptris_plan *p = teptris_plan_build(&spec, &st);
+    fflush(stderr);
+
+    /* the reject path (601-plan chain) must be silent too */
+    const uint32_t deep = 601;
+    std::vector<teptris_plan_row> drows;
+    std::vector<uint32_t> dfirst;
+    dfirst.push_back(0);
+    for (uint32_t i = 0; i < deep - 1; i++) {
+        drows.push_back({"k", TEPTRIS_PLAN_NESTED, i + 1});
+        dfirst.push_back((uint32_t)drows.size());
+    }
+    drows.push_back({"leaf", TEPTRIS_PLAN_SCALAR, 0});
+    dfirst.push_back((uint32_t)drows.size());
+    teptris_plan_spec dspec = {TEPTRIS_PLAN_ABI_VERSION, deep, drows.data(),
+                               dfirst.data()};
+    teptris_status dst = TEPTRIS_OK;
+    teptris_plan *dp = teptris_plan_build(&dspec, &dst);
+    fflush(stderr);
+
+    dup2(saved, fileno(stderr));
+    close(saved);
+
+    EXPECT_NE(p, nullptr);
+    EXPECT_EQ(st, TEPTRIS_OK);
+    EXPECT_EQ(dp, nullptr);
+    EXPECT_EQ(dst, TEPTRIS_ERR_ARG);
+
+    fseek(cap, 0, SEEK_END);
+    EXPECT_EQ(ftell(cap), 0L);
+    fclose(cap);
     teptris_plan_free(p);
 }
