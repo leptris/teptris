@@ -56,17 +56,26 @@ jobs:
             -Isrc/include -Isrc -o fuzz_dump \
             test/fuzz/fuzz_dump.c \
             src/teptris/*.c src/teptris/*/*.c src/teptris/*/*/*.c
+          # batch-parse harness: N length-equal documents per input -
+          # the batch API's zeroing/partial-failure contract, the
+          # ERR_ALLOC nothing-to-free path and the shared-opts pointer
+          clang -fsanitize=fuzzer,address,undefined -g -O1 -std=c99 \
+            -Isrc/include -Isrc -o fuzz_parse_batch \
+            test/fuzz/fuzz_parse_batch.c \
+            src/teptris/*.c src/teptris/*/*.c src/teptris/*/*/*.c
 
       - name: Fuzz
         run: |
           MINS="${{ github.event.inputs.minutes || '10' }}"
           SECS=$((MINS * 60))
-          THIRD=$((SECS / 3))
-          ./fuzz_parse corpus -max_total_time="$THIRD" -timeout=5 \
+          QUARTER=$((SECS / 4))
+          ./fuzz_parse corpus -max_total_time="$QUARTER" -timeout=5 \
             -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
-          ./fuzz_plan corpus -max_total_time="$THIRD" -timeout=5 \
+          ./fuzz_plan corpus -max_total_time="$QUARTER" -timeout=5 \
             -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
-          ./fuzz_dump corpus -max_total_time="$THIRD" -timeout=5 \
+          ./fuzz_dump corpus -max_total_time="$QUARTER" -timeout=5 \
+            -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
+          ./fuzz_parse_batch corpus -max_total_time="$QUARTER" -timeout=5 \
             -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
 
       - name: Upload crash inputs
