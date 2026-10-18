@@ -115,8 +115,6 @@ teptris_plan *teptris_plan_build(const teptris_plan_spec *spec,
     }
     int too_deep = 0;
     for (uint32_t pi = 0; pi < p->plan_count; pi++) {
-        fprintf(stderr, "DBG depths[%u]=%u first=%u\n", pi, depths[pi],
-                p->first_row[pi]);
         if (depths[pi] > TEPTRIS_PLAN_MAX_DEPTH) {
             too_deep = 1;
         }
