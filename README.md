@@ -36,6 +36,24 @@ thread contract lands with the batch API).
 | toml-test (BurntSushi) | **100%** — 714/714 on the 1.1 view, 711/711 on the 1.0 view (`scripts/toml-test-run.sh`) |
 | differential vs tomlrb / tomllib | pending (needs item 06 binding) |
 
+## Fuzzing
+
+Four per-entrypoint libFuzzer harnesses under `test/fuzz/`, built with
+`-fsanitize=fuzzer,address,undefined` and run nightly on a shared
+generated corpus (budget split evenly; `workflow_dispatch` takes a
+`minutes` override):
+
+| target | surface |
+| --- | --- |
+| `fuzz_parse` | parse (input-driven `max_depth`) → full DOM walk through every typed accessor + `table_get` probes → emit → re-parse |
+| `fuzz_parse_batch` | `teptris_parse_batch`: N-doc slicing, zeroing contract, per-document-failure docs, ERR_ALLOC path |
+| `fuzz_plan` | plan build → walk → every result accessor drained |
+| `fuzz_dump` | builder op sequences → all three emitter views → flatten |
+
+Found so far: two NULL-source `memcpy` UBs in dom clone growth
+(v0.3.3), plus the harness's own OOB reads. Crash artifacts are
+uploaded by the lane on failure.
+
 ## Descriptor plan ABI
 
 Fused schema-descriptor materialization for framework adapters
