@@ -212,7 +212,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                     break;
                 }
                 case 4: {
-                    if (wn + 1 + 25 > sizeof ws) break;
+                    if (wn + 27 > sizeof ws) break; /* op+kind+i64+5+u32+i64 */
                     ws[wn++] = 0x07;
                     ws[wn++] = (uint8_t)(4 + (op % 4));
                     int64_t yr = 1979;
