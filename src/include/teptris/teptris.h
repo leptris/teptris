@@ -187,6 +187,23 @@ TEPTRIS_API const char * teptris_version_string(void);
  * kept alive). Duplicate keys are TEPTRIS_ERR_ARG.
  * Memory: the builder owns its document until teptris_builder_finish
  * transfers it; otherwise teptris_builder_free destroys it. */
+/* Streaming TOML writer: op-stream in (grammar in
+ * src/teptris/emit/writer.c), TOML text out - the fused dumps path
+ * for bindings that walk host objects. Caller contract: within each
+ * table, scalar values must be fed before nested tables/AOTs;
+ * violations are ERR_STATE (invalid TOML is never emitted).
+ * Memory: *buf from teptris_writer_finish is malloc'd; free it with
+ * free(). */
+typedef struct teptris_writer teptris_writer;
+
+TEPTRIS_API teptris_writer *teptris_writer_new(void);
+TEPTRIS_API void teptris_writer_free(teptris_writer *w);
+TEPTRIS_API teptris_status teptris_writer_feed(teptris_writer *w,
+                                               const uint8_t *ops,
+                                               size_t len);
+TEPTRIS_API teptris_status teptris_writer_finish(teptris_writer *w,
+                                                 char **buf, size_t *len);
+
 typedef struct teptris_builder teptris_builder;
 
 TEPTRIS_API teptris_builder *teptris_builder_new(void);

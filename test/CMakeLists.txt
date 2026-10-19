@@ -23,6 +23,7 @@ add_executable(test_unit
     unit/test_tables.cpp
     unit/test_errors.cpp
     unit/test_emit.cpp
+    unit/test_writer.cpp
     unit/test_corpus.cpp
     unit/test_builder.cpp
     unit/test_flatten.cpp

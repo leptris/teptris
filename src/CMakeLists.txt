@@ -17,6 +17,7 @@ set(TEPTRIS_SOURCES
     teptris/parse/scalars.c
     teptris/parse/datetime.c
     teptris/emit/emitter.c
+    teptris/emit/writer.c
     teptris/api.c
 )
 

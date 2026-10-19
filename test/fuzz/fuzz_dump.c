@@ -137,6 +137,134 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
         ops++;
     }
 
+/* writer half: replay the SAME op sequence as an op-stream; whatever
+ * the writer accepts must produce TOML that re-parses cleanly */
+    {
+        teptris_writer *wr = teptris_writer_new();
+        if (wr != NULL) {
+            uint8_t ws[8192];
+            size_t wn = 0;
+            /* re-walk a fresh builder op loop in writer-op encoding:
+             * keys as 0x01 records, values as scalar records, table/
+             * array opens as 0x08/0x09, closes as 0x0C */
+            size_t pos2 = 0;
+            int ops2 = 0;
+            int depth2 = 0;
+            int last_was_table = 0;
+            while (pos2 + 2 < size && ops2 < 4096 && wn < sizeof ws) {
+                uint8_t op = data[pos2];
+                uint8_t klen = data[pos2 + 1];
+                pos2 += 2;
+                if (klen > size - pos2) {
+                    klen = (uint8_t)(size - pos2);
+                }
+                if (wn + 2 + klen > sizeof ws) {
+                    break;
+                }
+                ws[wn++] = 0x01;
+                ws[wn++] = klen;
+                memcpy(ws + wn, data + pos2, klen);
+                wn += klen;
+                pos2 += klen;
+                switch (op % 8) {
+                case 0: {
+                    const uint8_t *vend =
+                        memchr(data + pos2, 0xFF, size - pos2);
+                    size_t vlen =
+                        vend ? (size_t)(vend - (data + pos2)) : size - pos2;
+                    if (vlen > 4096) vlen = 4096;
+                    if (wn + 5 + vlen > sizeof ws) break;
+                    ws[wn++] = 0x02;
+                    ws[wn++] = (uint8_t)(vlen & 0xFF);
+                    ws[wn++] = (uint8_t)((vlen >> 8) & 0xFF);
+                    ws[wn++] = (uint8_t)((vlen >> 16) & 0xFF);
+                    ws[wn++] = (uint8_t)((vlen >> 24) & 0xFF);
+                    memcpy(ws + wn, data + pos2, vlen);
+                    wn += vlen;
+                    pos2 += vlen;
+                    last_was_table = 0;
+                    break;
+                }
+                case 1: {
+                    if (wn + 9 > sizeof ws) break;
+                    ws[wn++] = 0x03;
+                    memcpy(ws + wn, data + pos2, 8);
+                    wn += 8;
+                    last_was_table = 0;
+                    break;
+                }
+                case 2: {
+                    if (wn + 9 > sizeof ws) break;
+                    ws[wn++] = 0x04;
+                    memcpy(ws + wn, data + pos2, 8);
+                    wn += 8;
+                    last_was_table = 0;
+                    break;
+                }
+                case 3: {
+                    if (wn >= sizeof ws) break;
+                    ws[wn++] = (op & 1) ? 0x06 : 0x05;
+                    last_was_table = 0;
+                    break;
+                }
+                case 4: {
+                    if (wn + 1 + 25 > sizeof ws) break;
+                    ws[wn++] = 0x07;
+                    ws[wn++] = (uint8_t)(4 + (op % 4));
+                    int64_t yr = 1979;
+                    memcpy(ws + wn, &yr, 8); wn += 8;
+                    ws[wn++] = 5; ws[wn++] = 27; ws[wn++] = 7;
+                    ws[wn++] = 32; ws[wn++] = 0;
+                    uint32_t ns = 123456789;
+                    memcpy(ws + wn, &ns, 4); wn += 4;
+                    int64_t off = 0;
+                    memcpy(ws + wn, &off, 8); wn += 8;
+                    last_was_table = 0;
+                    break;
+                }
+                case 5:
+                    if (depth2 < 400 && wn < sizeof ws) {
+                        ws[wn++] = 0x08;
+                        depth2++;
+                        last_was_table = 1;
+                    }
+                    break;
+                case 6:
+                    if (depth2 < 400 && wn < sizeof ws) {
+                        ws[wn++] = 0x09;
+                        depth2++;
+                        last_was_table = 1;
+                    }
+                    break;
+                case 7:
+                    if (depth2 > 0 && wn < sizeof ws) {
+                        ws[wn++] = 0x0C;
+                        depth2--;
+                        if (depth2 == 0) last_was_table = 1;
+                    }
+                    break;
+                }
+                ops2++;
+            }
+            if (wn < sizeof ws) {
+                ws[wn++] = 0x00;
+            }
+            teptris_status wst = teptris_writer_feed(wr, ws, wn);
+            char *wbuf = NULL;
+            size_t wlen = 0;
+            if (wst == TEPTRIS_OK) {
+                wst = teptris_writer_finish(wr, &wbuf, &wlen);
+                if (wst == TEPTRIS_OK && wbuf != NULL) {
+                    teptris_document *wd = NULL;
+                    (void)teptris_parse(wbuf, wlen, NULL, &wd);
+                    if (wd != NULL) teptris_document_free(wd);
+                    free(wbuf);
+                }
+            }
+            teptris_writer_free(wr);
+        }
+    }
+
     teptris_document *doc = NULL;
     teptris_status st = teptris_builder_finish(b, &doc);
     teptris_builder_free(b);
