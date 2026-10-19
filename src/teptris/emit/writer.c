@@ -364,7 +364,6 @@ teptris_status teptris_writer_feed(teptris_writer *w, const uint8_t *ops,
                 break;
             }
             teptris_datetime dt;
-            teptris_datetime dt;
             uint64_t yr = 0, off = 0, ns = 0;
             for (int b = 0; b < 8; b++) {
                 yr |= (uint64_t)ops[i + 1 + b] << (8 * b); /* LE */
@@ -382,6 +381,13 @@ teptris_status teptris_writer_feed(teptris_writer *w, const uint8_t *ops,
             memcpy(&dt.nanosecond, &ns, 4);
             dt.offset_seconds = (int32_t)off;
             i += 26;
+            w_keyed_prefix(w);
+            if (w->st != TEPTRIS_OK) {
+                break;
+            }
+            emit_dt(&w->out, &dt, (teptris_kind)kb);
+            w_end_line(w);
+            break;
             if (w->st != TEPTRIS_OK) {
                 break;
             }
