@@ -131,6 +131,24 @@ static void w_clear_key(teptris_writer *w)
     w->key_len = 0;
 }
 
+/* push with an OWNED key (transfers the malloc from the caller) */
+static wframe *w_push_steal(teptris_writer *w, int kind, char *k,
+                            size_t klen)
+{
+    wframe *f = calloc(1, sizeof(*f));
+    if (f == NULL) {
+        free(k);
+        w->st = TEPTRIS_ERR_ALLOC;
+        return NULL;
+    }
+    f->down = w->top;
+    f->kind = kind;
+    f->key = k;
+    f->key_len = klen;
+    w->top = f;
+    return f;
+}
+
 static wframe *w_push(teptris_writer *w, int kind, const char *k,
                       size_t klen)
 {
@@ -387,11 +405,11 @@ teptris_status teptris_writer_feed(teptris_writer *w, const uint8_t *ops,
             eb_c(&w->out, '[');
             w_path(w, 1);
             eb_put(&w->out, "]\n", 2);
-            const char *k = w->key;
+            char *k = w->key; /* frame takes ownership */
             size_t klen = w->key_len;
-            w->key = NULL; /* frame takes ownership */
+            w->key = NULL;
             w->key_len = 0;
-            w_push(w, F_TABLE, k, klen);
+            w_push_steal(w, F_TABLE, k, klen);
             break;
         }
         case W_BEGIN_AOT: {
@@ -407,11 +425,11 @@ teptris_status teptris_writer_feed(teptris_writer *w, const uint8_t *ops,
             if (t != NULL) {
                 t->saw_subtable = 1;
             }
-            const char *k = w->key;
+            char *k = w->key; /* frame takes ownership */
             size_t klen = w->key_len;
             w->key = NULL;
             w->key_len = 0;
-            w_push(w, F_AOT, k, klen);
+            w_push_steal(w, F_AOT, k, klen);
             break;
         }
         case W_BEGIN_ARRAY: {
