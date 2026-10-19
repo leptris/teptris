@@ -78,6 +78,16 @@ jobs:
           ./fuzz_parse_batch corpus -max_total_time="$QUARTER" -timeout=5 \
             -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
 
+      - name: Differential over the mutated corpus
+        if: success()
+        run: |
+          cmake -B build-diff -S . -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_TESTING=OFF -DTEPTRIS_BUILD_CLI=ON \
+            -DTEPTRIS_BUILD_SHARED=OFF
+          cmake --build build-diff -j
+          CLI=$(find build-diff -name teptris -type f | head -1)
+          python3 scripts/differential.py "$CLI" corpus
+
       - name: Upload crash inputs
         if: failure()
         uses: actions/upload-artifact@v7
