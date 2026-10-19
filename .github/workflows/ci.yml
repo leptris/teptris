@@ -82,6 +82,32 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  differential:
+    name: differential vs tomllib
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+
+      - name: Build
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF \
+            -DTEPTRIS_BUILD_CLI=ON -DTEPTRIS_BUILD_SHARED=OFF
+          cmake --build build -j
+          CLI=$(find build -name teptris -type f | head -1)
+          echo "TEPTRIS_CLI=$CLI" >> "$GITHUB_ENV"
+
+      - name: Differential over toml-test valid + generated corpus
+        run: |
+          bash scripts/toml-test-run.sh corpus/toml-test
+          python3 scripts/gen_bench_corpus.py bench-corpus
+          python3 scripts/differential.py "$TEPTRIS_CLI" \
+            corpus/toml-test/tests/valid bench-corpus
+
   conformance:
     name: toml-test (1.1 view)
     runs-on: ubuntu-latest
