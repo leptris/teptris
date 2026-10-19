@@ -304,8 +304,12 @@ teptris_status teptris_writer_feed(teptris_writer *w, const uint8_t *ops,
                 w->st = TEPTRIS_ERR_ARG;
                 break;
             }
+            uint64_t u = 0;
+            for (int b = 0; b < 8; b++) {
+                u |= (uint64_t)ops[i + b] << (8 * b); /* little-endian */
+            }
             int64_t v;
-            memcpy(&v, ops + i, 8);
+            memcpy(&v, &u, 8);
             i += 8;
             w_keyed_prefix(w);
             if (w->st != TEPTRIS_OK) {
@@ -320,8 +324,12 @@ teptris_status teptris_writer_feed(teptris_writer *w, const uint8_t *ops,
                 w->st = TEPTRIS_ERR_ARG;
                 break;
             }
+            uint64_t u = 0;
+            for (int b = 0; b < 8; b++) {
+                u |= (uint64_t)ops[i + b] << (8 * b); /* little-endian */
+            }
             double d;
-            memcpy(&d, ops + i, 8);
+            memcpy(&d, &u, 8);
             i += 8;
             w_keyed_prefix(w);
             if (w->st != TEPTRIS_OK) {
@@ -356,19 +364,24 @@ teptris_status teptris_writer_feed(teptris_writer *w, const uint8_t *ops,
                 break;
             }
             teptris_datetime dt;
-            int64_t yr, off;
-            memcpy(&yr, ops + i + 1, 8);
+            teptris_datetime dt;
+            uint64_t yr = 0, off = 0, ns = 0;
+            for (int b = 0; b < 8; b++) {
+                yr |= (uint64_t)ops[i + 1 + b] << (8 * b); /* LE */
+                off |= (uint64_t)ops[i + 18 + b] << (8 * b);
+            }
+            for (int b = 0; b < 4; b++) {
+                ns |= (uint64_t)ops[i + 14 + b] << (8 * b);
+            }
             dt.year = (int32_t)yr;
             dt.month = ops[i + 9];
             dt.day = ops[i + 10];
             dt.hour = ops[i + 11];
             dt.minute = ops[i + 12];
             dt.second = ops[i + 13];
-            memcpy(&dt.nanosecond, ops + i + 14, 4);
-            memcpy(&off, ops + i + 18, 8);
+            memcpy(&dt.nanosecond, &ns, 4);
             dt.offset_seconds = (int32_t)off;
             i += 26;
-            w_keyed_prefix(w);
             if (w->st != TEPTRIS_OK) {
                 break;
             }
