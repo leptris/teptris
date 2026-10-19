@@ -770,3 +770,63 @@ zero-copy Rust materialization, so the engine's margin passes
 through almost intact. Every binding tier is now measured:
 engine (parse five-way floor + three emit modes), ruby, python,
 rust, and JS.
+
+## Run 5 — full matrices at engine 0.3.4 (2026-10-19, Darwin arm64 M1 Max)
+
+`scripts/run_benchmarks.sh` (Release+LTO, seed 42 corpus, warmup 1,
+min-of-10). Parse column MB/s; emit column MB/s over input bytes.
+tomlc99/tomlc17/cpptoml have no serializers — emit N/A.
+
+| shape | teptris parse | best competitor parse | teptris emit | toml++ emit | toml11 emit |
+| --- | --- | --- | --- | --- | --- |
+| array_heavy | 522 MB/s | tomlc17 96 (5.4x) | 588 MB/s | 17 (35x) | 1 (430x) |
+| cargo_like | 371 | cpptoml 84 (4.4x) | 480 | 150 (3.2x) | 12 (16x) |
+| datetime_heavy | 541 | cpptoml 86 (6.3x) | 768 | 14 (57x) | 12 (12x) |
+| deep_tables | 382 | tomlc17 80 (4.8x) | 523 | 113 (4.7x) | 9 (19x) |
+| mixed | 445 | tomlc17 100 (4.4x) | 364 | 56 (6.5x) | 15 (12x) |
+| scalar_float | 367 | cpptoml 54 (6.8x) | 264 | 38 (6.9x) | 18 (4.6x) |
+| scalar_int | 378 | cpptoml 56 (6.8x) | 531 | 72 (7.4x) | 19 (8.2x) |
+| scalar_string | 521 | cpptoml 87 (6.0x) | 614 | 198 (3.1x) | 33 (3.4x) |
+| table_heavy | 411 | cpptoml 74 (5.6x) | 362 | 72 (5.0x) | 16 (9x) |
+
+Parse: teptris fastest on every shape, 4.2-6.8x the best C/C++
+competitor where it parses (tomlc17 rejects the 40k+-key scalar shapes
+and datetime_heavy; cpptoml rejects heterogeneous arrays; tomlc99 is
+quadratic on key counts). Emit: teptris 3.1-57x tomlplusplus (the best
+serializer), 3.4-430x toml11.
+
+## Run 5 — language tiers (2026-10-19, best-of-40, same host)
+
+End-to-end through each binding's native objects (materialization
+included; corpora identical).
+
+| shape | ruby teptris | ruby tomlrb | ruby tomlib | py teptris | py tomllib | py rtoml | rs teptris | rs toml |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| array_heavy | 257 MB/s | 1.4 | 37 | 237 | 4.6 | 90 | loads 11x, dumps 5.0x | |
+| cargo_like | 123 | 1.3 | 7.5 | 135 | 5.4 | 54 | 5.5x / 5.9x | |
+| datetime_heavy | 31 | 1.6 | 0.1 | 181 | 8.0 | 37 | 9.9x / 6.8x | |
+| deep_tables | 145 | 1.1 | 42 | 140 | 4.4 | 46 | 6.0x / 6.7x | |
+| mixed | 109 | 1.1 | 21 | 121 | 4.9 | 44 | 6.3x / 5.6x | |
+| scalar_float | 133 | 2.0 | 0.1 | 164 | 7.6 | 59 | 8.4x / 2.9x | |
+| scalar_int | 116 | 1.7 | 0.1 | 131 | 6.9 | 70 | 12.9x / 3.4x | |
+| scalar_string | 171 | 3.6 | 0.6 | 235 | 9.4 | 127 | 4.4x / 4.2x | |
+| table_heavy | 115 | 1.2 | 1.9 | 134 | 5.1 | 48 | 7.3x / 3.0x | |
+
+- ruby: teptris 9/9 vs tomlrb (19-184x) and 9/9 vs tomlib (7-370x;
+  tomlib is quadratic on key-heavy shapes). Dump: teptris 9/9 vs
+  Tomlib.dump (6-10x); tomlrb has no serializer. tep-JSON is
+  1.1-1.6x raw JSON.generate.
+- python: teptris 9/9 vs tomllib (16-26x) and rtoml (1.5-7.3x).
+  **Dumps GAP: rtoml wins 5/9** (scalar_int 239 vs 144 MB/s, 1.7x);
+  teptris wins 4/9. Lever: the dumps path re-walks the Python object
+  per value - a bulk op-stream write is the fix.
+- rust: teptris 9/9 loads (6.8-13.5x the toml crate) and 9/9 dumps
+  (2.9-5x).
+- JS (teptris-wasm vs the JS ecosystem, same corpus): @iarna/toml
+  loses everywhere it parses (1.4-3.3x; rejects heterogeneous-array
+  shapes). **smol-toml GAP: wins 6/9 parse (max 1.8x, scalar_string)
+  and 8/9 dump (max 2.2x, scalar_string)**; teptris wins datetime,
+  deep_tables, scalar_int on parse. Lever: per-node wasm boundary
+  crossings (~6ms of the ~7.4ms mixed-shape load is JS-side
+  materialization; the C engine does the same file in ~1.0ms) - the
+  one-bulk-drain materializer is the fix, as in ruby/py before it.

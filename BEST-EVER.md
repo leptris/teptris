@@ -38,14 +38,14 @@ not best.**
 
 ## The ledger — current honest standing
 
-Last refreshed: 2026-10-19 (engine v0.3.4 family).
+Last refreshed: 2026-10-19 (engine v0.3.4 family, run 5).
 
 | dimension | C engine | Ruby | Python | Rust | JS/TS |
 | --- | --- | --- | --- | --- | --- |
 | correctness | 714/714 + 711/711 toml-test | parity specs vs tomllib-shape | tomllib-shape parity | toml-test via engine | toml-test via engine |
 | differential vs references | **GAP** — oracle job unbuilt | **GAP** — vs tomlrb/tomllib pending | **GAP** — vs tomllib pending | **GAP** — vs toml crate pending | **GAP** — vs smol-toml pending |
-| speed: parse | **best** — 5.2–8.2× the best C/C++ competitor, every shape (186–335 MB/s) | **best vs tomllib** 3–8×; **GAP** — tomlrb head-to-head unmeasured | **best vs tomllib/rtoml** 4.8–6× | **best vs toml crate** 7–45× | **best vs @iarna** 2–4×; **GAP** — smol-toml only at parity |
-| speed: emit | **GAP** — no competitor emit head-to-head | engine-fed, competitor cell open | engine-fed, competitor cell open | **GAP** — emit vs toml crate unmeasured | **GAP** — emit vs smol-toml unmeasured |
+| speed: parse | **best** — 4.2–6.8× the best C/C++ competitor, every shape (367–541 MB/s, run 5) | **best** — 9/9, 19–184× tomlrb, 7–370× tomlib | **best** — 9/9, 16–26× tomllib, 1.5–7.3× rtoml | **best** — 9/9, 6.8–13.5× the toml crate | @iarna beaten everywhere (1.4–3.3×); **GAP** — smol-toml wins 6/9 (max 1.8×) |
+| speed: emit | **best** — 3.1–57× tomlplusplus, 3.4–430× toml11, every shape (264–768 MB/s, run 5) | **best** — 9/9 vs Tomlib.dump 6–10× (tomlrb has no serializer) | **GAP** — rtoml.dumps wins 5/9 (max 1.7× on scalar_int) | **best** — 9/9, 2.9–5× the toml crate | **GAP** — smol-toml wins 8/9 dump (max 2.2×) |
 | memory safety | 4 fuzz targets, ASan/UBSan/TSan lanes, depth caps, stderr-silence test | inherits engine | inherits engine | inherits engine | inherits engine (wasm build warning-gated) |
 | ergonomics | stable C ABI, opaque handles | tomlib-shaped + Descriptor | tomllib-shaped + Descriptor | value model + Descriptor crate | ES module + .d.ts + Descriptor |
 | packaging | pkg-config/cmake, 12-lane CI | fat gems, every platform, OIDC | 60 wheels + sdist, PGO | crates.io TP | npm TP, wasm, provenance |
@@ -56,18 +56,18 @@ Last refreshed: 2026-10-19 (engine v0.3.4 family).
 Each phase carries an acceptance gate. A phase is done when its gate
 holds, not when its code merges.
 
-### Phase 1 — kill every unmeasured cell
-1. Ruby: head-to-head vs **tomlrb** (parse + dump, generated corpus,
-   best-of-≥40) → ledger cell.
-2. C: emit head-to-head vs **toml11** and **tomlplusplus** emit paths
-   → ledger cell.
-3. Rust: emit head-to-head vs the **toml** crate → ledger cell.
-4. JS: per-shape emit + parse vs **smol-toml** and **@iarna/toml** →
-   ledger cell.
-5. Python: re-confirm dumps numbers vs tomllib/rtoml on the current
-   engine → ledger cell.
+### Phase 1 — kill every unmeasured cell ✅ (2026-10-19, run 5)
+1. ✅ Ruby vs tomlrb: 9/9 parse, 19–184× (tomlrb has no serializer —
+   dump N/A).
+2. ✅ C emit vs toml11/tomlplusplus: 3.1–57× tomlplusplus, every
+   shape.
+3. ✅ Rust emit vs the toml crate: 9/9, 2.9–5×.
+4. ✅ JS per-shape vs smol-toml + @iarna: @iarna beaten everywhere;
+   smol-toml GAP cells recorded.
+5. ✅ Python dumps re-confirmed: **rtoml wins 5/9 — new GAP cell**.
 
-**Gate:** no cell in the ledger reads "unmeasured".
+**Gate:** no cell in the ledger reads "unmeasured". Two measured-loss
+cells (py dumps, JS) now carry optimization levers.
 
 ### Phase 2 — differential correctness everywhere
 6. Engine CI: a differential job running teptris and a reference

@@ -1,0 +1,76 @@
+{
+  "files": [
+    {"name": "array_heavy.toml", "bytes": 755883, "libs": {
+      "teptris": {"ok": true, "parse_min_ms": 1.3808, "parse_med_ms": 1.5681, "destroy_min_ms": 0.0787, "emit_min_ms": 1.2255, "mb_per_s": 522.1, "top_keys": 450, "error": ""},
+      "tomlc99": {"ok": true, "parse_min_ms": 14.5073, "parse_med_ms": 14.8538, "destroy_min_ms": 0.8340, "emit_min_ms": 0.0000, "mb_per_s": 49.7, "top_keys": 450, "error": ""},
+      "toml11": {"ok": true, "parse_min_ms": 5509.6571, "parse_med_ms": 10410.8565, "destroy_min_ms": 1.2576, "emit_min_ms": 607.1581, "mb_per_s": 0.1, "top_keys": 450, "error": ""},
+      "tomlplusplus": {"ok": true, "parse_min_ms": 12.1661, "parse_med_ms": 48.4136, "destroy_min_ms": 1.5411, "emit_min_ms": 42.9688, "mb_per_s": 59.3, "top_keys": 450, "error": ""},
+      "tomlc17": {"ok": true, "parse_min_ms": 7.5152, "parse_med_ms": 15.9045, "destroy_min_ms": 0.1853, "emit_min_ms": 0.0000, "mb_per_s": 95.9, "top_keys": 0, "error": ""},
+      "cpptoml": {"ok": false, "parse_min_ms": 0.0000, "parse_med_ms": 0.0000, "destroy_min_ms": 0.0000, "emit_min_ms": 0.0000, "mb_per_s": 0.0, "top_keys": 0, "error": "Arrays must be homogeneous at line 801"}
+    }},
+    {"name": "cargo_like.toml", "bytes": 371594, "libs": {
+      "teptris": {"ok": true, "parse_min_ms": 0.9543, "parse_med_ms": 0.9951, "destroy_min_ms": 0.1411, "emit_min_ms": 0.7384, "mb_per_s": 371.3, "top_keys": 2, "error": ""},
+      "tomlc99": {"ok": true, "parse_min_ms": 65.6213, "parse_med_ms": 116.9377, "destroy_min_ms": 0.6252, "emit_min_ms": 0.0000, "mb_per_s": 5.4, "top_keys": 2, "error": ""},
+      "toml11": {"ok": true, "parse_min_ms": 2301.8312, "parse_med_ms": 4168.3931, "destroy_min_ms": 0.9970, "emit_min_ms": 29.7330, "mb_per_s": 0.2, "top_keys": 2, "error": ""},
+      "tomlplusplus": {"ok": true, "parse_min_ms": 8.0695, "parse_med_ms": 32.8537, "destroy_min_ms": 1.1384, "emit_min_ms": 2.3641, "mb_per_s": 43.9, "top_keys": 2, "error": ""},
+      "tomlc17": {"ok": true, "parse_min_ms": 22.3836, "parse_med_ms": 126.2495, "destroy_min_ms": 0.4448, "emit_min_ms": 0.0000, "mb_per_s": 15.8, "top_keys": 0, "error": ""},
+      "cpptoml": {"ok": true, "parse_min_ms": 4.1959, "parse_med_ms": 7.0970, "destroy_min_ms": 1.1421, "emit_min_ms": 0.0000, "mb_per_s": 84.5, "top_keys": 2, "error": ""}
+    }},
+    {"name": "datetime_heavy.toml", "bytes": 1135563, "libs": {
+      "teptris": {"ok": true, "parse_min_ms": 2.0027, "parse_med_ms": 2.1742, "destroy_min_ms": 0.1269, "emit_min_ms": 1.4096, "mb_per_s": 540.7, "top_keys": 40000, "error": ""},
+      "tomlc99": {"ok": true, "parse_min_ms": 3011.2430, "parse_med_ms": 5706.2495, "destroy_min_ms": 1.2981, "emit_min_ms": 0.0000, "mb_per_s": 0.4, "top_keys": 40000, "error": ""},
+      "toml11": {"ok": true, "parse_min_ms": 756.7943, "parse_med_ms": 2773.1527, "destroy_min_ms": 1.1932, "emit_min_ms": 93.1784, "mb_per_s": 1.4, "top_keys": 40000, "error": ""},
+      "tomlplusplus": {"ok": true, "parse_min_ms": 30.3935, "parse_med_ms": 56.6891, "destroy_min_ms": 1.6846, "emit_min_ms": 80.1229, "mb_per_s": 35.6, "top_keys": 40000, "error": ""},
+      "tomlc17": {"ok": false, "parse_min_ms": 0.0000, "parse_med_ms": 0.0000, "destroy_min_ms": 0.0000, "emit_min_ms": 0.0000, "mb_per_s": 0.0, "top_keys": 0, "error": "(line 16385) table too large"},
+      "cpptoml": {"ok": true, "parse_min_ms": 12.6587, "parse_med_ms": 22.2097, "destroy_min_ms": 2.5808, "emit_min_ms": 0.0000, "mb_per_s": 85.6, "top_keys": 40000, "error": ""}
+    }},
+    {"name": "deep_tables.toml", "bytes": 254722, "libs": {
+      "teptris": {"ok": true, "parse_min_ms": 0.6362, "parse_med_ms": 0.6542, "destroy_min_ms": 0.1136, "emit_min_ms": 0.4649, "mb_per_s": 381.8, "top_keys": 1, "error": ""},
+      "tomlc99": {"ok": true, "parse_min_ms": 2.8562, "parse_med_ms": 2.9314, "destroy_min_ms": 0.3991, "emit_min_ms": 0.0000, "mb_per_s": 85.1, "top_keys": 1, "error": ""},
+      "toml11": {"ok": true, "parse_min_ms": 1280.2312, "parse_med_ms": 2806.6617, "destroy_min_ms": 0.5544, "emit_min_ms": 27.6338, "mb_per_s": 0.2, "top_keys": 1, "error": ""},
+      "tomlplusplus": {"ok": true, "parse_min_ms": 5.5528, "parse_med_ms": 7.6866, "destroy_min_ms": 0.5334, "emit_min_ms": 2.1495, "mb_per_s": 43.7, "top_keys": 1, "error": ""},
+      "tomlc17": {"ok": true, "parse_min_ms": 3.0540, "parse_med_ms": 3.2272, "destroy_min_ms": 0.3540, "emit_min_ms": 0.0000, "mb_per_s": 79.5, "top_keys": 0, "error": ""},
+      "cpptoml": {"ok": true, "parse_min_ms": 3.0807, "parse_med_ms": 4.7078, "destroy_min_ms": 0.6028, "emit_min_ms": 0.0000, "mb_per_s": 78.9, "top_keys": 1, "error": ""}
+    }},
+    {"name": "mixed.toml", "bytes": 457069, "libs": {
+      "teptris": {"ok": true, "parse_min_ms": 0.9791, "parse_med_ms": 1.1548, "destroy_min_ms": 0.0258, "emit_min_ms": 1.1975, "mb_per_s": 445.2, "top_keys": 9, "error": ""},
+      "tomlc99": {"ok": true, "parse_min_ms": 13.8102, "parse_med_ms": 22.0751, "destroy_min_ms": 1.0116, "emit_min_ms": 0.0000, "mb_per_s": 31.6, "top_keys": 9, "error": ""},
+      "toml11": {"ok": true, "parse_min_ms": 585.8901, "parse_med_ms": 892.5955, "destroy_min_ms": 1.1453, "emit_min_ms": 28.7217, "mb_per_s": 0.7, "top_keys": 9, "error": ""},
+      "tomlplusplus": {"ok": true, "parse_min_ms": 13.2907, "parse_med_ms": 47.1110, "destroy_min_ms": 1.0528, "emit_min_ms": 7.8150, "mb_per_s": 32.8, "top_keys": 9, "error": ""},
+      "tomlc17": {"ok": true, "parse_min_ms": 4.3523, "parse_med_ms": 13.2541, "destroy_min_ms": 0.5676, "emit_min_ms": 0.0000, "mb_per_s": 100.2, "top_keys": 0, "error": ""},
+      "cpptoml": {"ok": true, "parse_min_ms": 5.4208, "parse_med_ms": 24.9261, "destroy_min_ms": 1.2078, "emit_min_ms": 0.0000, "mb_per_s": 80.4, "top_keys": 9, "error": ""}
+    }},
+    {"name": "scalar_float.toml", "bytes": 1538065, "libs": {
+      "teptris": {"ok": true, "parse_min_ms": 3.9967, "parse_med_ms": 45.7474, "destroy_min_ms": 0.1383, "emit_min_ms": 5.5589, "mb_per_s": 367.0, "top_keys": 60000, "error": ""},
+      "tomlc99": {"ok": true, "parse_min_ms": 4680.6487, "parse_med_ms": 6511.0492, "destroy_min_ms": 2.0500, "emit_min_ms": 0.0000, "mb_per_s": 0.3, "top_keys": 60000, "error": ""},
+      "toml11": {"ok": true, "parse_min_ms": 1195.5354, "parse_med_ms": 2435.1945, "destroy_min_ms": 1.7693, "emit_min_ms": 81.9743, "mb_per_s": 1.2, "top_keys": 60000, "error": ""},
+      "tomlplusplus": {"ok": true, "parse_min_ms": 67.1055, "parse_med_ms": 70.1234, "destroy_min_ms": 2.2627, "emit_min_ms": 38.4838, "mb_per_s": 21.9, "top_keys": 60000, "error": ""},
+      "tomlc17": {"ok": false, "parse_min_ms": 0.0000, "parse_med_ms": 0.0000, "destroy_min_ms": 0.0000, "emit_min_ms": 0.0000, "mb_per_s": 0.0, "top_keys": 0, "error": "(line 16385) table too large"},
+      "cpptoml": {"ok": true, "parse_min_ms": 27.3241, "parse_med_ms": 30.7745, "destroy_min_ms": 2.6615, "emit_min_ms": 0.0000, "mb_per_s": 53.7, "top_keys": 60000, "error": ""}
+    }},
+    {"name": "scalar_int.toml", "bytes": 1338299, "libs": {
+      "teptris": {"ok": true, "parse_min_ms": 3.3764, "parse_med_ms": 3.5304, "destroy_min_ms": 0.1793, "emit_min_ms": 2.4050, "mb_per_s": 378.0, "top_keys": 60000, "error": ""},
+      "tomlc99": {"ok": true, "parse_min_ms": 4532.2963, "parse_med_ms": 4744.7269, "destroy_min_ms": 1.6545, "emit_min_ms": 0.0000, "mb_per_s": 0.3, "top_keys": 60000, "error": ""},
+      "toml11": {"ok": true, "parse_min_ms": 1199.3490, "parse_med_ms": 1235.5305, "destroy_min_ms": 1.8525, "emit_min_ms": 65.6785, "mb_per_s": 1.1, "top_keys": 60000, "error": ""},
+      "tomlplusplus": {"ok": true, "parse_min_ms": 37.7101, "parse_med_ms": 38.2156, "destroy_min_ms": 2.3199, "emit_min_ms": 17.6565, "mb_per_s": 33.8, "top_keys": 60000, "error": ""},
+      "tomlc17": {"ok": false, "parse_min_ms": 0.0000, "parse_med_ms": 0.0000, "destroy_min_ms": 0.0000, "emit_min_ms": 0.0000, "mb_per_s": 0.0, "top_keys": 0, "error": "(line 16385) table too large"},
+      "cpptoml": {"ok": true, "parse_min_ms": 22.9913, "parse_med_ms": 25.1815, "destroy_min_ms": 3.1775, "emit_min_ms": 0.0000, "mb_per_s": 55.5, "top_keys": 60000, "error": ""}
+    }},
+    {"name": "scalar_string.toml", "bytes": 1361192, "libs": {
+      "teptris": {"ok": true, "parse_min_ms": 2.4927, "parse_med_ms": 2.5774, "destroy_min_ms": 0.1536, "emit_min_ms": 2.1155, "mb_per_s": 520.8, "top_keys": 30000, "error": ""},
+      "tomlc99": {"ok": true, "parse_min_ms": 1148.2492, "parse_med_ms": 1227.9507, "destroy_min_ms": 1.1720, "emit_min_ms": 0.0000, "mb_per_s": 1.1, "top_keys": 30000, "error": ""},
+      "toml11": {"ok": true, "parse_min_ms": 464.8665, "parse_med_ms": 471.9482, "destroy_min_ms": 1.4397, "emit_min_ms": 39.2965, "mb_per_s": 2.8, "top_keys": 30000, "error": ""},
+      "tomlplusplus": {"ok": true, "parse_min_ms": 25.9361, "parse_med_ms": 27.5569, "destroy_min_ms": 1.8249, "emit_min_ms": 6.5517, "mb_per_s": 50.1, "top_keys": 30000, "error": ""},
+      "tomlc17": {"ok": false, "parse_min_ms": 0.0000, "parse_med_ms": 0.0000, "destroy_min_ms": 0.0000, "emit_min_ms": 0.0000, "mb_per_s": 0.0, "top_keys": 0, "error": "(line 16385) table too large"},
+      "cpptoml": {"ok": true, "parse_min_ms": 14.9030, "parse_med_ms": 15.5525, "destroy_min_ms": 2.4301, "emit_min_ms": 0.0000, "mb_per_s": 87.1, "top_keys": 30000, "error": ""}
+    }},
+    {"name": "table_heavy.toml", "bytes": 1178059, "libs": {
+      "teptris": {"ok": true, "parse_min_ms": 2.7323, "parse_med_ms": 2.7970, "destroy_min_ms": 0.2054, "emit_min_ms": 3.1074, "mb_per_s": 411.2, "top_keys": 15000, "error": ""},
+      "tomlc99": {"ok": true, "parse_min_ms": 294.4073, "parse_med_ms": 300.7497, "destroy_min_ms": 2.2974, "emit_min_ms": 0.0000, "mb_per_s": 3.8, "top_keys": 15000, "error": ""},
+      "toml11": {"ok": true, "parse_min_ms": 2446.1508, "parse_med_ms": 2721.3176, "destroy_min_ms": 3.0440, "emit_min_ms": 71.3548, "mb_per_s": 0.5, "top_keys": 15000, "error": ""},
+      "tomlplusplus": {"ok": true, "parse_min_ms": 30.4255, "parse_med_ms": 32.2497, "destroy_min_ms": 2.9431, "emit_min_ms": 15.5216, "mb_per_s": 36.9, "top_keys": 15000, "error": ""},
+      "tomlc17": {"ok": true, "parse_min_ms": 327.5165, "parse_med_ms": 358.8071, "destroy_min_ms": 1.2691, "emit_min_ms": 0.0000, "mb_per_s": 3.4, "top_keys": 0, "error": ""},
+      "cpptoml": {"ok": true, "parse_min_ms": 15.2119, "parse_med_ms": 17.8731, "destroy_min_ms": 5.3614, "emit_min_ms": 0.0000, "mb_per_s": 73.9, "top_keys": 15000, "error": ""}
+    }}
+  ]
+}
