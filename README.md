@@ -1,5 +1,11 @@
 # teptris — TOML at library speed
 
+**Mission: be the best TOML parser and builder ever made — in C, in
+Ruby, in Rust, and in JavaScript — measured, not claimed.** The bar,
+the honest ledger, and the plan live in
+[BEST-EVER.md](BEST-EVER.md); "parity" and "unmeasured" are gaps, not
+wins.
+
 An ultra-performance TOML 1.1 parser/writer in pure C99 — the TOML
 sibling of [libleptris](https://github.com/leptris/leptris) (XML) and
 [libyeptris](https://github.com/leptris/yeptris) (YAML+JSON). Zero

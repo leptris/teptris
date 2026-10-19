@@ -1,0 +1,41 @@
+# CLAUDE.md — teptris (the C engine)
+
+## Mission
+
+Be the best TOML parser and builder ever made — in C, Ruby, Rust, and
+JS — measured, not claimed. The bar, the honest ledger, and the
+gap-closing plan live in [BEST-EVER.md](BEST-EVER.md). Read it before
+proposing work; a dimension that is "at parity" or "unmeasured" is an
+open gap, not a win.
+
+## Operating laws (this family)
+
+- **Family versioning law**: a binding version is
+  `{engine version}.{binding iteration}`; npm/crates use 3-part semver.
+  A binding version bump moves its engine pin **in the same PR**. The
+  engine version is the family anchor; engine changes are patch bumps
+  ("CLI is tooling").
+- **Every release is gated by a smoke of the published artifact** from
+  the registry (npm/PyPI/rubygems/crates), asserting the engine
+  version inside and silence on stdout/stderr.
+- **Never write to stdout/stderr from library code.** There is a
+  regression test; keep it meaningful. Debug prints in C are invisible
+  to unit tests and fuzz — only the published-artifact smoke or an
+  explicit silence test catches them.
+- **Bytes-vs-count discipline**: byte-sized malloc/memset for
+  count-indexed arrays is this family's recurring overflow class
+  (three strikes). Always `sizeof`.
+- All changes go through PRs (rebase-merge); the fuzz lane and unit
+  suite gate the merge; tags are releases.
+- Benchmarks: measure before claiming; numbers carry a date, host, and
+  competitor version; ±25% cross-host reference limits; best-of-≥40
+  for binding benches.
+
+## Layout
+
+- `src/teptris/` — the engine (parser, builder, dom, plan, emitters)
+- `src/include/teptris/` — the stable C ABI (`teptris.h`, `plan.h`)
+- `test/unit/`, `test/toml-test/`, `test/fuzz/` — the three gates
+- `scripts/gen_bench_corpus.py` — the shared corpus generator
+- Bindings: `teptris-ruby`, `teptris-py`, `teptris-rs`, `teptris-ts`
+  (separate repos; the pin points back here by tag)
