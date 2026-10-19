@@ -328,7 +328,7 @@ teptris_status teptris_writer_feed(teptris_writer *w, const uint8_t *ops,
             break;
         }
         case W_DATETIME: {
-            if (i + 26 > len) {
+            if (i + 26 > len) { /* kind + i64 year + 5 + u32 ns + i64 off */
                 w->st = TEPTRIS_ERR_ARG;
                 break;
             }

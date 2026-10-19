@@ -188,7 +188,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                 case 1: {
                     if (wn + 9 > sizeof ws) break;
                     ws[wn++] = 0x03;
-                    memcpy(ws + wn, data + pos2, 8);
+                    size_t take = 8 < size - pos2 ? 8 : size - pos2;
+                    memcpy(ws + wn, data + pos2, take);
+                    memset(ws + wn + take, 0, 8 - take);
                     wn += 8;
                     last_was_table = 0;
                     break;
@@ -196,7 +198,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                 case 2: {
                     if (wn + 9 > sizeof ws) break;
                     ws[wn++] = 0x04;
-                    memcpy(ws + wn, data + pos2, 8);
+                    size_t take = 8 < size - pos2 ? 8 : size - pos2;
+                    memcpy(ws + wn, data + pos2, take);
+                    memset(ws + wn + take, 0, 8 - take);
                     wn += 8;
                     last_was_table = 0;
                     break;
