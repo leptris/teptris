@@ -121,8 +121,8 @@ emitted at C speed. vs the competitors' own loads+dumps roundtrip:
 
 | surface | teptris native | competitor dict roundtrip | result |
 | --- | --- | --- | --- |
-| py vs rtoml | 1.25-10.2 MB/s per shape | 30.8-74.5 MB/s... inverted: teptris 3.0-10.1x FASTER every shape | **best 9/9** |
-| js vs smol | 3.1-22.9 ms | 6.1-56.9 ms | **best 9/9** (1.4-4.7x) |
+| py vs rtoml | 1.25-10.2 ms per shape (1.2 MB/s scalar_float - 10.2 MB/s array) | 5.99-35.12 ms per shape | **best 9/9, 3.0-10.1x** |
+| js vs smol | 3.1-22.9 ms per shape | 6.1-56.9 ms per shape | **best 9/9, 1.4-4.7x** |
 
 Every shape, both surfaces: the native roundtrip is the fastest
 reserialization path in each ecosystem.
