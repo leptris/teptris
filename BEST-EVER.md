@@ -113,6 +113,20 @@ deliberate divergences from native shapes.
 
 **Gate:** every release ships with a refreshed BEST-EVER.md.
 
+## The native roundtrip dimension (2026-10-20)
+
+Reserialization WITHOUT host objects: loads_doc/dumps_doc (py),
+loadsDoc/dumpDoc (js) - the engine document retained behind a handle,
+emitted at C speed. vs the competitors' own loads+dumps roundtrip:
+
+| surface | teptris native | competitor dict roundtrip | result |
+| --- | --- | --- | --- |
+| py vs rtoml | 1.25-10.2 MB/s per shape | 30.8-74.5 MB/s... inverted: teptris 3.0-10.1x FASTER every shape | **best 9/9** |
+| js vs smol | 3.1-22.9 ms | 6.1-56.9 ms | **best 9/9** (1.4-4.7x) |
+
+Every shape, both surfaces: the native roundtrip is the fastest
+reserialization path in each ecosystem.
+
 ## What "done" means
 
 The mission is achieved when this table has no GAP cells, every BEST
