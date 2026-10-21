@@ -82,6 +82,15 @@ jobs:
       - name: Test
         run: ctest --test-dir build --output-on-failure
 
+  entrypoint-coverage:
+    name: entrypoint coverage (E3)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - name: Every TEPTRIS_API symbol has fuzz + unit coverage
+        run: bash scripts/entrypoint_coverage.sh
+
   differential:
     name: differential vs tomllib
     runs-on: ubuntu-latest

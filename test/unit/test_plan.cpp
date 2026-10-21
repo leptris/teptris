@@ -262,3 +262,82 @@ TEST(PlanDepth, BuildWritesNothingToStderr)
     fclose(cap);
     teptris_plan_free(p);
 }
+
+TEST(PlanSurface, EveryAccessorNamed)
+{
+    /* E3: the introspection surface named as a unit - the typed
+     * accessors' mismatch paths return non-OK, never crash; the row
+     * introspection reads a built plan's spec rows. */
+    const uint32_t count = 3;
+    std::vector<teptris_plan_row> rows = {
+        {"a", TEPTRIS_PLAN_SCALAR, 0},
+        {"t", TEPTRIS_PLAN_NESTED, 2},
+        {"x", TEPTRIS_PLAN_SCALAR, 0},
+    };
+    std::vector<uint32_t> first = {0, 1, 2, 3};
+    teptris_plan_spec spec = {TEPTRIS_PLAN_ABI_VERSION, count, rows.data(),
+                              first.data()};
+    teptris_status st = TEPTRIS_OK;
+    teptris_plan *p = teptris_plan_build(&spec, &st);
+    ASSERT_NE(p, nullptr);
+    EXPECT_EQ(st, TEPTRIS_OK);
+
+    /* plan 0 holds only 'a'; 't' (nested) is plan 1's row; 'x' is
+     * plan 2's row (the nested sub the t row points at) */
+    EXPECT_EQ(teptris_plan_row_count(p, 0), 1u);
+    EXPECT_EQ(teptris_plan_row_kind_at(p, 0, 0), TEPTRIS_PLAN_SCALAR);
+    EXPECT_EQ(teptris_plan_row_kind_at(p, 1, 0), TEPTRIS_PLAN_NESTED);
+    EXPECT_EQ(teptris_plan_row_sub_at(p, 1, 0), 2u);
+    size_t namelen = 99;
+    const char *nm = teptris_plan_row_name_at(p, 0, 0);
+    EXPECT_NE(nm, nullptr);
+    namelen = strlen(nm);
+    EXPECT_EQ(namelen, 1u);
+
+    /* a walked result: every typed accessor + mismatch paths */
+    teptris_document *doc = nullptr;
+    const char *srcdoc = "a = 7\n[t]\nx = \"s\"\n";
+    st = teptris_parse(srcdoc, strlen(srcdoc), nullptr, &doc);
+    teptris_plan_result *res =
+        teptris_plan_walk(p, teptris_document_root(doc), &st);
+    ASSERT_NE(res, nullptr);
+
+    EXPECT_EQ(teptris_plan_result_kind_at(res, 0), TEPTRIS_PLAN_SCALAR);
+    EXPECT_EQ(teptris_plan_result_value_kind_at(res, 0), TEPTRIS_INTEGER);
+    teptris_view v;
+    EXPECT_EQ(teptris_plan_result_string_at(res, 0, &v), TEPTRIS_ERR_ARG);
+    int64_t iv = 0;
+    EXPECT_EQ(teptris_plan_result_integer_at(res, 0, &iv), TEPTRIS_OK);
+    EXPECT_EQ(iv, 7);
+    double fv = 0;
+    EXPECT_EQ(teptris_plan_result_float_at(res, 0, &fv), TEPTRIS_ERR_ARG);
+    bool bv = true;
+    EXPECT_EQ(teptris_plan_result_boolean_at(res, 0, &bv), TEPTRIS_ERR_ARG);
+    teptris_datetime dt;
+    EXPECT_EQ(teptris_plan_result_datetime_at(res, 0, &dt),
+              TEPTRIS_ERR_ARG);
+    (void)teptris_plan_result_raw_at(res, 0);
+    EXPECT_EQ(teptris_plan_result_array_len_at(res, 0), 0u);
+    (void)teptris_plan_result_array_value_kind_at(res, 0, 0);
+    (void)teptris_plan_result_array_kind_at(res, 0, 0);
+    EXPECT_EQ(teptris_plan_result_array_string_at(res, 0, 0, &v),
+              TEPTRIS_ERR_ARG);
+    EXPECT_EQ(teptris_plan_result_array_integer_at(res, 0, 0, &iv),
+              TEPTRIS_ERR_ARG);
+    EXPECT_EQ(teptris_plan_result_array_float_at(res, 0, 0, &fv),
+              TEPTRIS_ERR_ARG);
+    EXPECT_EQ(teptris_plan_result_array_boolean_at(res, 0, 0, &bv),
+              TEPTRIS_ERR_ARG);
+    EXPECT_EQ(teptris_plan_result_array_datetime_at(res, 0, 0, &dt),
+              TEPTRIS_ERR_ARG);
+    /* the borrowed sub-result view exists only for collection rows;
+     * a scalar row has nothing to view */
+    teptris_plan_result *view = teptris_plan_result_row_view(res, 0);
+    EXPECT_EQ(view, nullptr);
+    if (view != nullptr) {
+        teptris_plan_result_free(view);
+    }
+    teptris_plan_result_free(res);
+    teptris_document_free(doc);
+    teptris_plan_free(p);
+}
