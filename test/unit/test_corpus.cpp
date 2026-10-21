@@ -92,3 +92,46 @@ TEST(Corpus, Invalid)
         DocGuard g(doc);
     }
 }
+
+TEST(Corpus, CanonicalIdempotence)
+{
+    /* E6: the canonical form is a fixed point of re-emission -
+     * emit(parse(emit(x))) == emit(parse(x)), bytewise, over shapes
+     * exercising every emit path (sections, AOTs, inline tables and
+     * arrays, all four datetime kinds, quoting, ordering) */
+    const char *shapes[] = {
+        "a = 1",
+        "a = -1\n",
+        "f = 1.5\ni = inf\nn = nan\n",
+        "s = \"str\"\ne = ''\nq = \"\\u00e9\"\nl = 'raw \\\\ text'\n",
+        "b = true\nb2 = false\n",
+        "h = 0x10\nu = 1_2\n",
+        "d = 1979-05-27\nt = 07:32:00\no = 1979-05-27T07:32:00Z\nw = 1979-05-27 07:32:00Z\n",
+        "[t]\nx = 1\n",
+        "a.b = 1\n",
+        "[[fruit]]\nname = \"apple\"\n\n[[fruit]]\nname = \"banana\"\n",
+        "o = {n = \"v\"}\ne = {}\n",
+        "arr = [1, 2]\nmixed = [0.1, true, 'x']\n",
+        "\"quoted key\" = 1\n",
+        "[a]\nx = 1\n\n[a.b]\ny = 2\n\n[after]\nz = 1\n",
+    };
+    for (const char *shape : shapes) {
+        teptris_document *doc = parse_ok(shape);
+        ASSERT_NE(doc, nullptr);
+        DocGuard g(doc);
+        char *e1 = nullptr;
+        size_t e1len = 0;
+        ASSERT_EQ(teptris_document_emit(doc, &e1, &e1len), TEPTRIS_OK);
+        std::string first(e1, e1len);
+        free(e1);
+        teptris_document *doc2 = parse_ok(first.c_str());
+        ASSERT_NE(doc2, nullptr);
+        DocGuard g2(doc2);
+        char *e2 = nullptr;
+        size_t e2len = 0;
+        ASSERT_EQ(teptris_document_emit(doc2, &e2, &e2len), TEPTRIS_OK);
+        std::string second(e2, e2len);
+        free(e2);
+        EXPECT_EQ(first, second) << "not a fixed point: " << shape;
+    }
+}

@@ -263,3 +263,30 @@ TEST(EmitJsonNatural, RoundTripsThroughConformanceJsonSemantics)
               "{\"type\":\"integer\",\"value\":\"2\"},"
               "{\"type\":\"float\",\"value\":\"3.5\"}]}}");
 }
+
+TEST(Emit, CanonicalReferenceArtifact)
+{
+    /* E6: the checked-in golden is the emitter's fixed point - parse
+     * it, re-emit, and the bytes must equal the checked-in file. A
+     * diff means the canonical form CHANGED (a spec event). */
+    FILE *f = fopen(TEPTRIS_SOURCE_DIR "/test/golden/canonical.toml", "rb");
+    ASSERT_NE(f, nullptr);
+    fseek(f, 0, SEEK_END);
+    long len = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    std::string golden((size_t)len, '\0');
+    size_t rd = fread(golden.data(), 1, (size_t)len, f);
+    fclose(f);
+    ASSERT_GT(rd, 0u);
+
+    teptris_document *doc = parse_ok(golden.c_str());
+    ASSERT_NE(doc, nullptr);
+    DocGuard g(doc);
+    EXPECT_EQ(emit_json(doc) == nullptr, false); /* parses to a tree */
+    char *out = nullptr;
+    size_t outlen = 0;
+    ASSERT_EQ(teptris_document_emit(doc, &out, &outlen), TEPTRIS_OK);
+    std::string reemitted(out, outlen);
+    free(out);
+    EXPECT_EQ(reemitted, golden);
+}
