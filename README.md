@@ -42,6 +42,14 @@ thread contract lands with the batch API).
 | toml-test (BurntSushi) | **100%** — 714/714 on the 1.1 view, 711/711 on the 1.0 view (`scripts/toml-test-run.sh`) |
 | differential vs tomlrb / tomllib | pending (needs item 06 binding) |
 
+Every engine-tier number reproduces from one container command
+(pinned toolchain, pinned competitors, deterministic corpus —
+`benchmarks/LEDGER.md`):
+
+```sh
+docker build -t teptris-bench -f scripts/bench-container/Dockerfile . && docker run --rm teptris-bench
+```
+
 ## Fuzzing
 
 Four per-entrypoint libFuzzer harnesses under `test/fuzz/`, built with
