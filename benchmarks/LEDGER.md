@@ -4,6 +4,21 @@ Artifact numbers only. Every claim below comes from
 `benchmarks/results/bench_parse.json`, produced by the recorded
 command; regenerate with `scripts/run_benchmarks.sh`.
 
+Reproducible from a container (X2) — pinned toolchain image, pinned
+competitor sources, deterministic corpus, both bench binaries:
+
+```sh
+docker build -t teptris-bench -f scripts/bench-container/Dockerfile .
+docker run --rm teptris-bench
+```
+
+The engine-tier numbers below are judged against a fresh run at the
+recorded ±25% cross-host band. The pins live in
+`scripts/bench-container/Dockerfile`, mirrored from the bench lane's
+`Fetch pinned reference libraries` step — a pin change lands in both
+places in one PR. CI runs this container on every main push
+(report-only) via the bench lane's `reproducible` job.
+
 ## Machine + pins (run 2, 2026-09-13, after ryu + string fast-path)
 
 - Darwin arm64, Apple M1 Max. Release: `-O3 -DNDEBUG -flto=thin`.
