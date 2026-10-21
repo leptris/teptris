@@ -830,3 +830,28 @@ included; corpora identical).
   crossings (~6ms of the ~7.4ms mixed-shape load is JS-side
   materialization; the C engine does the same file in ~1.0ms) - the
   one-bulk-drain materializer is the fix, as in ruby/py before it.
+
+## Roofline (E4, 2026-10-20, Darwin arm64 M1 Max)
+
+Method: the denominator is the host's measured streaming bandwidth -
+8 iterations of a 512 MB memcpy timed with getrusage (read+write
+traffic counted, best of 3 process runs): **42.1 GB/s**. The
+numerators are the run-5 parse/emit columns (same host, same day).
+A parser is not a memcpy - it branches, hashes, allocates, and
+transcendentals - so single-digit percentages of streaming bandwidth
+are the expected neighborhood; the claim this publishes is the FLOOR
+relative to the machine, per shape.
+
+| shape | parse MB/s | % of 42.1 GB/s | emit MB/s | % of 42.1 GB/s |
+| --- | --- | --- | --- | --- |
+| array_heavy | 522 | 1.24% | 588 | 1.40% |
+| cargo_like | 371 | 0.88% | 480 | 1.14% |
+| datetime_heavy | 541 | 1.29% | 768 | 1.82% |
+| deep_tables | 382 | 0.91% | 523 | 1.24% |
+| mixed | 445 | 1.06% | 364 | 0.86% |
+| scalar_float | 367 | 0.87% | 264 | 0.63% |
+| scalar_int | 378 | 0.90% | 531 | 1.26% |
+| scalar_string | 521 | 1.24% | 614 | 1.46% |
+| table_heavy | 411 | 0.98% | 362 | 0.86% |
+
+Parse spans 0.87-1.29% of streaming bandwidth; emit 0.63-1.82%.
