@@ -110,13 +110,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     teptris_plan *plan = teptris_plan_build(&spec, &st);
     if (plan != NULL) {
         /* plan introspection: every accessor drained on the built plan */
-        (void)teptris_plan_row_count(plan);
         (void)teptris_plan_row_count(plan, 0);
         (void)teptris_plan_abi_version();
         for (uint32_t i = 0; i < 2; i++) {
-            (void)teptris_plan_row_kind_at(plan, i);
-            (void)teptris_plan_row_sub_at(plan, i);
-            (void)teptris_plan_row_name_at(plan, i, 0);
+            (void)teptris_plan_row_kind_at(plan, 0, i);
+            (void)teptris_plan_row_sub_at(plan, 0, i);
+            (void)teptris_plan_row_name_at(plan, 0, i);
         }
         teptris_plan_result *res =
             teptris_plan_walk(plan, teptris_document_root(doc), &st);

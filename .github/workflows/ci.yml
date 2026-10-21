@@ -90,6 +90,19 @@ jobs:
       - uses: actions/checkout@v7
       - name: Every TEPTRIS_API symbol has fuzz + unit coverage
         run: bash scripts/entrypoint_coverage.sh
+      # the fuzz lane runs on a schedule, hours after a merge — a
+      # harness that stopped compiling against a changed API surfaced
+      # there first (fuzz_plan.c vs the plan_idx accessor signature).
+      # Compile-only: catches drift on every PR in ~30s.
+      - name: The fuzz harnesses still compile
+        run: |
+          set -eux
+          mkdir -p build-fuzz
+          for h in parse parse_batch plan dump; do
+            clang -fsanitize=fuzzer,address,undefined -g -O1 -std=c99 \
+              -I src/include -I src -I test/fuzz \
+              -c test/fuzz/fuzz_$h.c -o build-fuzz/fuzz_$h.o
+          done
 
   differential:
     name: differential vs tomllib
