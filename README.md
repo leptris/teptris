@@ -36,13 +36,15 @@ thread contract lands with the batch API).
 
 | check | standing |
 | --- | --- |
-| unit + corpus suites | 58/58 green (scalars, datetimes, table define-semantics, errors with line:col, emit goldens, roundtrip property) |
+| unit + corpus suites | 99/99 green (scalars, datetimes, table define-semantics, errors with line:col + byte spans, emit goldens incl. the canonical-form reference artifact, roundtrip property) |
 | roundtrip property | parse → emit → parse tree equality + emit byte-stability over the corpus |
 | ASAN | full suite green + fuzz smoke (truncations, mutations, random bytes) clean |
-| parse matrix vs C/C++ references | teptris 186–335 MB/s, fastest on every shape vs tomlc99, tomlc17, cpptoml, toml11, tomlplusplus (5.2–8.2× the best competitor) — `benchmarks/LEDGER.md` |
-| bindings | teptris-ruby (tomlib-shaped, parity specs) + teptris-py (tomllib-shaped, tomli parity) — see `TODO.impl/06` |
-| toml-test (BurntSushi) | **100%** — 714/714 on the 1.1 view, 711/711 on the 1.0 view (`scripts/toml-test-run.sh`) |
-| differential vs tomlrb / tomllib | pending (needs item 06 binding) |
+| parse matrix vs C/C++ references | teptris 367–541 MB/s, fastest on every shape vs tomlc99, tomlc17, cpptoml, toml11, tomlplusplus (4.2–6.8× the best competitor, run 5, 2026-10-19) — `benchmarks/LEDGER.md` |
+| emit matrix | 264–768 MB/s, 3.1–57× tomlplusplus / 3.4–430× toml11 (run 5) — `benchmarks/LEDGER.md` |
+| bindings | teptris-ruby, teptris-py, teptris-rs, teptris-ts — the tier verdicts live in `BEST-EVER.md` |
+| toml-test (BurntSushi) | **100%** — 712/712 on the 1.1 view (pin ff49d109); the 1.0 view is 700/9 — the 9 accepts are TOML 1.1-legalized constructs, documented in `scripts/toml-test-run.sh` |
+| differential vs the reference implementation | **zero divergence** — `scripts/differential.py` (CLI natural-JSON vs a tomllib value-tree oracle): 266/266 toml-test valid cases + the 9-shape corpus; wired into the ci and fuzz lanes |
+| reproducible benchmarks | one container command reproduces the engine-tier numbers on any host — `scripts/bench-container/`, and a report-only CI job runs it on every main push |
 
 Every engine-tier number reproduces from one container command
 (pinned toolchain, pinned competitors, deterministic corpus —
