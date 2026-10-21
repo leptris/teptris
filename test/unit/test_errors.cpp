@@ -125,3 +125,27 @@ TEST(Errors, MissingTrailingNewlineOk)
     EXPECT_EQ(parse_status("a = 1", &doc), TEPTRIS_OK);
     DocGuard g(doc);
 }
+
+TEST(Errors, ByteOffsetSpans)
+{
+    /* E5: every error carries a machine-readable point span - the
+     * byte offset of the offending position, start == end */
+    struct {
+        const char *in;
+        size_t offset;
+    } cases[] = {
+        {"a = ", 4},        /* at EOF, after '=' */
+        {"a = 1\nb = = 2", 10}, /* the value position at the first '=' */
+        {"a\x01 = 1", 1},   /* the invalid control byte */
+    };
+    for (auto &c : cases) {
+        teptris_document *doc = nullptr;
+        teptris_status st = teptris_parse(c.in, strlen(c.in), nullptr, &doc);
+        EXPECT_NE(st, TEPTRIS_OK) << "input: " << c.in;
+        ASSERT_NE(doc, nullptr);
+        DocGuard g(doc);
+        const teptris_error *e = teptris_document_error(doc);
+        EXPECT_EQ(e->start_offset, c.offset) << "input: " << c.in;
+        EXPECT_EQ(e->end_offset, e->start_offset) << "input: " << c.in;
+    }
+}

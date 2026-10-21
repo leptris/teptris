@@ -32,6 +32,8 @@ teptris_status tep_fail_at(teptris_parser *ps, const char *at, teptris_status co
     }
     doc->err.line = line;
     doc->err.column = (size_t)(pos - bol) + 1;
+    doc->err.start_offset = (size_t)(pos - ps->src);
+    doc->err.end_offset = doc->err.start_offset;
     return code;
 }
 
@@ -216,6 +218,8 @@ static teptris_status validate_utf8(teptris_document *doc, const char *data,
     doc->err.status = TEPTRIS_ERR_ENCODING;
     doc->err.line = line;
     doc->err.column = bad - (size_t)(bol - data) + 1;
+    doc->err.start_offset = bad;
+    doc->err.end_offset = bad;
     snprintf(doc->err_msg, sizeof(doc->err_msg), "invalid UTF-8 sequence");
     doc->err.message = doc->err_msg;
     return TEPTRIS_ERR_ENCODING;

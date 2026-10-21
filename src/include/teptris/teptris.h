@@ -75,6 +75,13 @@ typedef struct teptris_error {
     size_t line;   /* 1-based */
     size_t column; /* 1-based */
     const char *message; /* NUL-terminated, document-owned */
+    /* E5 machine-readable span: byte offsets into the parse input.
+     * Errors are point events, so start == end (the offset of the
+     * offending position). Appended fields: consumers hold engine-
+     * owned const pointers, so the struct may grow without breaking
+     * already-built callers. */
+    size_t start_offset;
+    size_t end_offset;
 } teptris_error;
 
 typedef struct teptris_options {
