@@ -8,12 +8,19 @@ name: fuzz
 on:
   schedule:
     - cron: "0 3 * * *"
+    # weekly extended lane: 4 hours + the grown corpus published as a
+    # public artifact (the fallback for OSS-Fuzz integration)
+    - cron: "0 4 * * 6"
   workflow_dispatch:
     inputs:
       minutes:
         description: "fuzz budget in minutes"
         required: false
         default: "10"
+      extended:
+        description: "extended lane (long budget + corpus artifact)"
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -67,6 +74,11 @@ jobs:
       - name: Fuzz
         run: |
           MINS="${{ github.event.inputs.minutes || '10' }}"
+          # the Saturday cron rides the extended lane (240 min)
+          if [ "${{ github.event.schedule }}" = "0 4 * * 6" ] || [ "${{ github.event.inputs.extended }}" = "true" ]; then
+            MINS=240
+            echo "FUZZ_EXTENDED=1" >> "$GITHUB_ENV"
+          fi
           SECS=$((MINS * 60))
           QUARTER=$((SECS / 4))
           ./fuzz_parse corpus -max_total_time="$QUARTER" -timeout=5 \
@@ -94,4 +106,12 @@ jobs:
         with:
           name: fuzz-crashes
           path: crashes/
+          if-no-files-found: ignore
+
+      - name: Publish the grown corpus (extended lane)
+        if: env.FUZZ_EXTENDED == '1' && success()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-corpus
+          path: corpus/
           if-no-files-found: ignore
