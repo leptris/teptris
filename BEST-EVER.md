@@ -128,6 +128,17 @@ emitted at C speed. vs the competitors' own loads+dumps roundtrip:
 Every shape, both surfaces: the native roundtrip is the fastest
 reserialization path in each ecosystem.
 
+## New-competitor coverage (2026-10-20, X1)
+
+| comparator | tier | teptris result |
+| --- | --- | --- |
+| qtoml (py, pure-python parse) | loads | **9/9, 60-145x** (0.9-2.6 MB/s) |
+| tomli-w (py, write-only) | dumps | **9/9, 5-13x** (13.2-82.6 ms) |
+| @ltd/j-toml (js, ESM TOML 1.0) | loads + dumps | **9/9 + 9/9, 1.6-5.6x loads / 1.6-20x dumps** (rejects heterogeneous arrays) |
+
+rtoml (py) and smol-toml (js) remain the only close comparators in
+their ecosystems.
+
 ## What "done" means
 
 The mission is achieved when this table has no GAP cells, every BEST
