@@ -82,7 +82,13 @@ teptris_document_free(doc);
 
 Key views point into the parse input (zero-copy); keep the input buffer
 alive for the document's lifetime. Emitted TOML is canonical:
-`parse(emit(d)) == d` and `emit(parse(emit(d))) == emit(d)`.
+`parse(emit(d)) == d` and `emit(parse(emit(d))) == emit(d)`. The
+reference artifact - the emitter's fixed point over every TOML
+construct - is checked in at
+[test/golden/canonical.toml](test/golden/canonical.toml) (contract +
+regeneration rules in [canonical.md](test/golden/canonical.md)); CI
+enforces byte-stable re-emission of that file and of the whole emit
+surface (E6).
 
 ## CLI
 

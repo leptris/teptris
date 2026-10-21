@@ -32,6 +32,9 @@ add_executable(test_unit
 )
 target_link_libraries(test_unit PRIVATE teptris GTest::gtest_main)
 target_include_directories(test_unit PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# E6: the canonical-form property test reads the checked-in corpus
+target_compile_definitions(test_unit PRIVATE
+    TEPTRIS_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 gtest_discover_tests(test_unit DISCOVERY_TIMEOUT 60)
 
 # CLI smoke: the binary ships in every CI lane (TEPTRIS_BUILD_CLI=ON);
