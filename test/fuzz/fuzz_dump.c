@@ -14,6 +14,10 @@
 
 #include "teptris/teptris.h"
 
+/* E3: the diagnostics pair rides every run */
+#define DUMP_STATUS_NAME(st) teptris_status_string(st)
+#define DUMP_VERS teptris_version_string()
+
 typedef struct {
     char *data;
     size_t len;
@@ -39,6 +43,8 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
     teptris_builder *b = teptris_builder_new();
     if (b == NULL) return 0;
+    (void)DUMP_STATUS_NAME(TEPTRIS_ERR_ARG);
+    (void)DUMP_VERS;
 
     strbuf sb = {NULL, 0};
     size_t pos = 0;
@@ -116,7 +122,11 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
             sb_put(&sb, "={ ", 3);
             break;
         case 6:
-            st = teptris_builder_open_array(b, keyp, keyn);
+            /* high bit picks the inline variant: both array opens are
+             * exercised from the same op class */
+            st = (op & 0x10)
+                     ? teptris_builder_open_inline_array(b, keyp, keyn)
+                     : teptris_builder_open_array(b, keyp, keyn);
             sb_put(&sb, keyp ? key : "?", keyn);
             sb_put(&sb, "=[ ", 3);
             break;

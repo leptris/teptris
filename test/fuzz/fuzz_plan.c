@@ -28,6 +28,13 @@ static void drain_row(const teptris_plan_result *r, uint32_t row,
                       uint32_t depth) {
     /* every typed accessor regardless of kind - the mismatched ones
      * must return non-OK, never crash */
+    (void)teptris_plan_result_kind_at(r, row);
+    (void)teptris_plan_result_value_kind_at(r, row);
+    teptris_plan_result *view = teptris_plan_result_row_view(r, row);
+    if (view != NULL) {
+        teptris_plan_result_free(view);
+    }
+    (void)teptris_plan_result_raw_at(r, row);
     teptris_view v;
     (void)teptris_plan_result_string_at(r, row, &v);
     int64_t iv = 0;
@@ -102,6 +109,15 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     teptris_plan_spec spec = {TEPTRIS_PLAN_ABI_VERSION, 2, rows, first_row};
     teptris_plan *plan = teptris_plan_build(&spec, &st);
     if (plan != NULL) {
+        /* plan introspection: every accessor drained on the built plan */
+        (void)teptris_plan_row_count(plan);
+        (void)teptris_plan_row_count(plan, 0);
+        (void)teptris_plan_abi_version();
+        for (uint32_t i = 0; i < 2; i++) {
+            (void)teptris_plan_row_kind_at(plan, i);
+            (void)teptris_plan_row_sub_at(plan, i);
+            (void)teptris_plan_row_name_at(plan, i, 0);
+        }
         teptris_plan_result *res =
             teptris_plan_walk(plan, teptris_document_root(doc), &st);
         if (res != NULL) {
