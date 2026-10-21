@@ -20,6 +20,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  reproducible:
+    # X2: the ledger's numbers must come out of a container one-liner
+    # on any host — pinned toolchain image, pinned competitor sources,
+    # deterministic corpus. Report-only: the +-25% cross-host band is
+    # judged by the reader (and recorded in LEDGER.md), not enforced
+    # here, because cross-arch runners legitimately differ.
+    name: reproducible container bench
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Build the image
+        run: docker build -t teptris-bench -f scripts/bench-container/Dockerfile .
+
+      - name: Run the pinned bench
+        run: |
+          docker run --rm teptris-bench | tee reproducible.txt
+          {
+            echo '### X2 reproducible container bench'
+            echo '```'
+            cat reproducible.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   ab:
     name: A/B ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
