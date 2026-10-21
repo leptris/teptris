@@ -123,6 +123,7 @@ emitted at C speed. vs the competitors' own loads+dumps roundtrip:
 | --- | --- | --- | --- |
 | py vs rtoml | 1.25-10.2 ms per shape (1.2 MB/s scalar_float - 10.2 MB/s array) | 5.99-35.12 ms per shape | **best 9/9, 3.0-10.1x** |
 | js vs smol | 3.1-22.9 ms per shape | 6.1-56.9 ms per shape | **best 9/9, 1.4-4.7x** |
+| ruby vs tomlib | 0.99-8.3 ms per shape (245-364 MB/s; scalar_int 5.0 ms) | 13.6-16895 ms per shape (tomlib collapses on flat shapes) | **best 9/9, 16.5-3751x** |
 
 Every shape, both surfaces: the native roundtrip is the fastest
 reserialization path in each ecosystem.
