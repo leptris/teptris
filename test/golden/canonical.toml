@@ -1,0 +1,34 @@
+int = 1
+neg = -1
+float = 1.5
+inf_f = inf
+nan_f = nan
+hex = 16
+underscored = 12
+bool_t = true
+bool_f = false
+string = 'str'
+empty = ''
+escaped = 'é'
+literal = 'raw \ text'
+aot_int = 1
+toplevel_array = [1, 2]
+mixed_array = [0.1, true, 'x']
+date_local = 1979-05-27
+time_local = 07:32:00
+datetime_offset = 1979-05-27T07:32:00Z
+datetime_offset_alt = 1979-05-27T07:32:00Z
+'quoted key' = 1
+inline_table = {n = 'v'}
+empty_table = {}
+empty_array = []
+[a]
+x = 1
+[a.b]
+y = 2
+[[fruit]]
+name = 'apple'
+[[fruit]]
+name = 'banana'
+[after_tables]
+z = 1
