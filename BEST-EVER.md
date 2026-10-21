@@ -139,6 +139,25 @@ reserialization path in each ecosystem.
 rtoml (py) and smol-toml (js) remain the only close comparators in
 their ecosystems.
 
+## B4 - the js dict-dumps architectural record (2026-10-20)
+
+One bounded attempt (per-value batched op writes) improved scalar_int
+~15% (26.3 to 22.3 ms) but the mega-flat shapes stay 1.02-1.6x behind
+smol-toml stringify. **Recorded architectural reason:** smol
+stringifies a structure it parsed into its own representation; teptris
+walks host objects it did not create and crosses the wasm boundary
+once per dump - that walk + crossing is the floor for ANY dict-API
+dump. The native-doc API (loadsDoc/dumpDoc, 9/9) is the sanctioned
+fast path for the reserialize shape; the dict cell keeps the
+batched-writes improvement and the record closes B4.
+
+## E5 - error spans (2026-10-21)
+
+teptris_error carries start_offset/end_offset (point spans, byte
+offsets into the parse input; append-only, ABI-safe). Engine v0.3.7;
+py TOMLDecodeError.span carries it end-to-end (E5 gate met on the py
+surface); ts/ruby follow on their next releases.
+
 ## What "done" means
 
 The mission is achieved when this table has no GAP cells, every BEST
