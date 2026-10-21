@@ -1,0 +1,4 @@
+# The canonical-form reference artifact is compared BYTE-EXACT by
+# test_emit.cpp; Windows checkouts would otherwise convert it to CRLF
+# (core.autocrlf) and the comparison fails on the MSVC cells.
+test/golden/** text eol=lf
