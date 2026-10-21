@@ -1,5 +1,7 @@
 # teptris — TOML at library speed
 
+[![ci](https://github.com/leptris/teptris/actions/workflows/ci.yml/badge.svg)](https://github.com/leptris/teptris/actions/workflows/ci.yml) [![fuzz](https://github.com/leptris/teptris/actions/workflows/fuzz.yml/badge.svg)](https://github.com/leptris/teptris/actions/workflows/fuzz.yml)
+
 **Mission: be the best TOML parser and builder ever made — in C, in
 Ruby, in Rust, and in JavaScript — measured, not claimed.** The bar,
 the honest ledger, and the plan live in
