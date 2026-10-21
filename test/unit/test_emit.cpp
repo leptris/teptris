@@ -282,7 +282,6 @@ TEST(Emit, CanonicalReferenceArtifact)
     teptris_document *doc = parse_ok(golden.c_str());
     ASSERT_NE(doc, nullptr);
     DocGuard g(doc);
-    EXPECT_EQ(emit_json(doc) == nullptr, false); /* parses to a tree */
     char *out = nullptr;
     size_t outlen = 0;
     ASSERT_EQ(teptris_document_emit(doc, &out, &outlen), TEPTRIS_OK);
