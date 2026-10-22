@@ -41,9 +41,13 @@ and the honest tier statement.
 Gate: site regenerates; links from the binding READMEs.
 
 ## X7 - Ops (owner items tracked here so they are never lost)
-- PyPI yank of teptris 0.3.1.0 (wrong-engine twin) - UI-only, OWNER.
-- py floor >= 3.10 decision (unlocks B3's borrow) - OWNER.
-- serde (B2) - OWNER.
-- TOML 1.1 stance (#102) - OWNER, upstream-blocked.
+- PyPI yank of teptris 0.3.1.0 - DONE (owner clicked 2026-10-22;
+  registry confirms yanked: true, wrong-engine reason recorded).
+- py floor >= 3.10 decision - DONE (owner 2026-10-22; shipped as
+  teptris-py 0.3.7.3, the abi3 line retired).
+- TOML 1.1 stance (#102) - DONE (owner 2026-10-22: the 1.1 draft
+  superset IS the default contract; declared in the README's "The
+  TOML contract", #102 closed with the ruling).
+- serde (B2) - GO (owner 2026-10-22); in progress on teptris-rs.
 Gate: this list stays; each item leaves when the owner records the
 decision.
