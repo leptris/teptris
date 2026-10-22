@@ -44,8 +44,8 @@ Last refreshed: 2026-10-19 (engine v0.3.4 family, run 5).
 | --- | --- | --- | --- | --- | --- |
 | correctness | 714/714 + 711/711 toml-test | parity specs vs tomllib-shape | tomllib-shape parity | toml-test via engine | toml-test via engine |
 | differential vs references | **GAP** — oracle job unbuilt | **GAP** — vs tomlrb/tomllib pending | **GAP** — vs tomllib pending | **GAP** — vs toml crate pending | **GAP** — vs smol-toml pending |
-| speed: parse | **best** — 4.2–6.8× the best C/C++ competitor, every shape (367–541 MB/s, run 5) | **best** — 9/9, 19–184× tomlrb, 7–370× tomlib | **best** — 9/9, 16–26× tomllib, 1.5–7.3× rtoml | **best** — 9/9, 6.8–13.5× the toml crate | @iarna beaten everywhere (1.4–3.3×); **GAP** — smol-toml wins 6/9 (max 1.8×) |
-| speed: emit | **best** — 3.1–57× tomlplusplus, 3.4–430× toml11, every shape (264–768 MB/s, run 5) + the streaming writer API (v0.3.5) | **best** — 9/9 vs Tomlib.dump 6–10× (tomlrb has no serializer) | **GAP** — writer dumps (0.3.5.1): 5/9 vs rtoml (datetime 1.6×, strings 1.4×; flat scalars 1.5× behind — per-value walk lever) | **best** — 9/9, 2.9–5× the toml crate | **GAP** — writer dumps (0.3.8): datetime_heavy flips to a win; smol keeps mega-flat shapes 1.4–1.7× (loads gap unchanged) |
+| speed: parse | **best** — 4.2–6.8× the best C/C++ competitor, every shape (367–541 MB/s, run 5) | **best** — 9/9, 19–184× tomlrb, 7–370× tomlib | **best** — 9/9, 16–26× tomllib, 1.5–7.3× rtoml | **best** — 9/9, 6.8–13.5× the toml crate; **serde derive path: 4.9×** (0.1.6, derive-vs-derive) | @iarna beaten everywhere (1.4–3.3×); **GAP** — smol-toml wins 6/9 (max 1.8×) |
+| speed: emit | **best** — 3.1–57× tomlplusplus, 3.4–430× toml11, every shape (264–768 MB/s, run 5) + the streaming writer API (v0.3.5) | **best** — 9/9 vs Tomlib.dump 6–10× (tomlrb has no serializer) | **GAP** — writer dumps (0.3.5.1): 5/9 vs rtoml (datetime 1.6×, strings 1.4×; flat scalars 1.5× behind — per-value walk lever) | **best** — 9/9, 2.9–5× the toml crate; serde to_string 3.9× | **GAP** — writer dumps (0.3.8): datetime_heavy flips to a win; smol keeps mega-flat shapes 1.4–1.7× (loads gap unchanged) |
 | memory safety | 4 fuzz targets, ASan/UBSan/TSan lanes, depth caps, stderr-silence test | inherits engine | inherits engine | inherits engine | inherits engine (wasm build warning-gated) |
 | ergonomics | stable C ABI, opaque handles | tomlib-shaped + Descriptor | tomllib-shaped + Descriptor | value model + Descriptor crate | ES module + .d.ts + Descriptor |
 | packaging | pkg-config/cmake, 12-lane CI | fat gems, every platform, OIDC | 60 wheels + sdist, PGO | crates.io TP | npm TP, wasm, provenance |
@@ -90,7 +90,7 @@ the nightly lane.
 and emit.
 
 ### Phase 4 — Rust ecosystem table stakes (owner decision pending)
-10. serde support (Serialize/Deserialize over the value model) behind
+10. ~~serde support~~ SHIPPED (owner GO 2026-10-22; teptris-rs 0.1.6 — from_str/to_string + Value/Table/Datetime traits, the toml-crate datetime convention; the derive cell above). ~~was:~~ serde support (Serialize/Deserialize over the value model) behind
     a feature flag. **This adds a dependency — an owner decision, not
     an engineering one.** Proposed; awaiting the owner's call.
 
@@ -134,6 +134,7 @@ reserialization path in each ecosystem.
 | --- | --- | --- |
 | qtoml (py, pure-python parse) | loads | **9/9, 60-145x** (0.9-2.6 MB/s) |
 | tomli-w (py, write-only) | dumps | **9/9, 5-13x** (13.2-82.6 ms) |
+| the toml crate's serde path (rust, derive) | serde in/out | **4.9× derive-deserialization, 3.9× serialization** (teptris 0.1.6 vs toml 0.8, 415 KB struct-shaped doc, M1 Max 2026-10-22, best-of-20 — the derive layer preserves the Value-model margin) |
 | @ltd/j-toml (js, ESM TOML 1.0) | loads + dumps | **9/9 + 9/9, 1.6-5.6x loads / 1.6-20x dumps** (rejects heterogeneous arrays) |
 
 rtoml (py) and smol-toml (js) remain the only close comparators in
