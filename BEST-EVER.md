@@ -45,7 +45,7 @@ Last refreshed: 2026-10-19 (engine v0.3.4 family, run 5).
 | correctness | 714/714 + 711/711 toml-test | parity specs vs tomllib-shape | tomllib-shape parity | toml-test via engine | toml-test via engine |
 | differential vs references | **GAP** — oracle job unbuilt | **GAP** — vs tomlrb/tomllib pending | **GAP** — vs tomllib pending | **GAP** — vs toml crate pending | **GAP** — vs smol-toml pending |
 | speed: parse | **best** — 4.2–6.8× the best C/C++ competitor, every shape (367–541 MB/s, run 5) | **best** — 9/9, 19–184× tomlrb, 7–370× tomlib | **best** — 9/9, 16–26× tomllib, 1.5–7.3× rtoml | **best** — 9/9, 6.8–13.5× the toml crate; **serde derive path: 4.9×** (0.1.6, derive-vs-derive) | @iarna beaten everywhere (1.4–3.3×); **GAP** — smol-toml wins 6/9 (max 1.8×) |
-| speed: emit | **best** — 3.1–57× tomlplusplus, 3.4–430× toml11, every shape (264–768 MB/s, run 5) + the streaming writer API (v0.3.5) | **best** — 9/9 vs Tomlib.dump 6–10× (tomlrb has no serializer) | **GAP** — writer dumps (0.3.5.1): 5/9 vs rtoml (datetime 1.6×, strings 1.4×; flat scalars 1.5× behind — per-value walk lever) | **best** — 9/9, 2.9–5× the toml crate; serde to_string 3.9× | **GAP** — writer dumps (0.3.8): datetime_heavy flips to a win; smol keeps mega-flat shapes 1.4–1.7× (loads gap unchanged) |
+| speed: emit | **best** — 3.1–57× tomlplusplus, 3.4–430× toml11, every shape (264–768 MB/s, run 5) + the streaming writer API (v0.3.5) | **best** — 9/9 vs Tomlib.dump 6–10× (tomlrb has no serializer) | **GAP** — 4/9 vs rtoml on the 3.10-floor build (0.3.7.3, borrowed keys everywhere: datetime 1.8×, strings 1.6×, cargo 1.4×, mixed 1.0× won; flat shapes up to 1.3× behind — rtoml's PyO3 value extraction, structural; native-doc dumps_doc wins the roundtrip 9/9 at 3.0-10.1×) | **best** — 9/9, 2.9–5× the toml crate; serde to_string 3.9× | **GAP** — writer dumps (0.3.8): datetime_heavy flips to a win; smol keeps mega-flat shapes 1.4–1.7× (loads gap unchanged) |
 | memory safety | 4 fuzz targets, ASan/UBSan/TSan lanes, depth caps, stderr-silence test | inherits engine | inherits engine | inherits engine | inherits engine (wasm build warning-gated) |
 | ergonomics | stable C ABI, opaque handles | tomlib-shaped + Descriptor | tomllib-shaped + Descriptor | value model + Descriptor crate | ES module + .d.ts + Descriptor |
 | packaging | pkg-config/cmake, 12-lane CI | fat gems, every platform, OIDC | 60 wheels + sdist, PGO | crates.io TP | npm TP, wasm, provenance |
@@ -64,7 +64,7 @@ holds, not when its code merges.
 3. ✅ Rust emit vs the toml crate: 9/9, 2.9–5×.
 4. ✅ JS per-shape vs smol-toml + @iarna: @iarna beaten everywhere;
    smol-toml GAP cells recorded.
-5. ✅ Python dumps re-confirmed: **rtoml wins 5/9 — new GAP cell**.
+5. ✅ Python dumps re-confirmed: rtoml wins — GAP cell (re-measured 2026-10-22 on the 3.10-floor build: rtoml 5/9 → 4/9 teptris after borrowed keys shipped everywhere; the residual is rtoml's PyO3 value extraction, structural).
 
 **Gate:** no cell in the ledger reads "unmeasured". Two measured-loss
 cells (py dumps, JS) now carry optimization levers.
