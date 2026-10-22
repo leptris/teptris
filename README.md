@@ -32,6 +32,28 @@ warnings-as-errors build → full tests → CLI smoke → leak check.
 Sanitizer presets: `build-asan`, `build-ubsan` (TODO: tsan once the
 thread contract lands with the batch API).
 
+## The TOML contract (the default, declared)
+
+teptris implements the **TOML 1.1 draft as a strict superset of
+1.0** — and that is the library's default contract, by owner decision
+(2026-10-22, closing the #102 question):
+
+- Every TOML 1.0 document parses unchanged.
+- The draft's extensions are accepted by default: newlines and
+  trailing commas inside inline tables, optional seconds in
+  time-of-day, Unicode bare keys, and the `\e` escape.
+- Conformance is measured, not claimed: **712/712** on the toml-test
+  1.1 view (pin `ff49d109`), and the 1.0 view is 700/9 — the nine
+  accepts are exactly the 1.1-legalized constructs above, listed in
+  `scripts/toml-test-run.sh`.
+- Value-level correctness beyond toml-test is differential-tested
+  against the reference implementation with zero divergences
+  (266/266 valid cases + the 9-shape corpus, every CI push).
+
+When the TOML specification finalizes 1.1, this contract is already
+it; if the final text diverges from the draft, the change is an
+engine patch-line event, measured and released like any other.
+
 ## The verification matrix (current standing)
 
 | check | standing |
