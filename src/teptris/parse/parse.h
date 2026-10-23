@@ -12,6 +12,7 @@ typedef struct teptris_parser {
     uint32_t depth;
     uint32_t max_depth;
     teptris_node *cur; /* open table (root until the first header) */
+    teptris_view cur_path; /* input-backed header text ('' = root) */
 } teptris_parser;
 
 /* parser.c entry: validates UTF-8, skips BOM, runs the line loop. */
