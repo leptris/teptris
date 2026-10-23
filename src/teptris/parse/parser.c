@@ -277,6 +277,16 @@ static teptris_status insert_dotted(teptris_parser *ps, teptris_node *table,
     size_t last_slot;
     if (teptris_dom_table_probe_slot(t, hlast, last.ptr, last.len,
                                      &last_slot) != NULL) {
+        if (count > 1) {
+            /* the parent path spans parts[0]..parts[count-2] (the
+             * interior '.'/ws bytes are inside the input span) */
+            return tep_fail_at(ps, NULL, TEPTRIS_ERR_SEMANTIC,
+                               "duplicate key '%.*s' in table '%.*s'",
+                               (int)last.len, last.ptr,
+                               (int)(parts[count - 2].ptr - parts[0].ptr +
+                                     parts[count - 2].len),
+                               parts[0].ptr);
+        }
         return tep_fail_at(ps, NULL, TEPTRIS_ERR_SEMANTIC, "duplicate key '%.*s'",
                            (int)last.len, last.ptr);
     }
@@ -410,10 +420,13 @@ static teptris_status resolve_header(teptris_parser *ps, const teptris_view *par
 static teptris_status parse_header(teptris_parser *ps)
 {
     tep_adv(ps, 1); /* '[' */
+    const char *hstart = ps->p; /* header text for dup-key context */
+    const char *hend = ps->p;
     bool aot = false;
     if (ps->p < ps->end && *ps->p == '[') {
         aot = true;
         tep_adv(ps, 1);
+        hstart = ps->p;
     }
 
     teptris_status st = tep_skip_ws(ps);
@@ -436,11 +449,13 @@ static teptris_status parse_header(teptris_parser *ps)
         if (ps->end - ps->p < 2 || ps->p[0] != ']' || ps->p[1] != ']') {
             return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "expected ']]'");
         }
+        hend = ps->p;
         tep_adv(ps, 2);
     } else {
         if (ps->p >= ps->end || *ps->p != ']') {
             return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "expected ']'");
         }
+        hend = ps->p;
         tep_adv(ps, 1);
     }
 
@@ -450,6 +465,10 @@ static teptris_status parse_header(teptris_parser *ps)
         return rst;
     }
     ps->cur = target;
+    /* the header text is input-backed: remember it so duplicate-key
+     * errors can name the enclosing table */
+    ps->cur_path.ptr = hstart;
+    ps->cur_path.len = (size_t)(hend - hstart);
     return TEPTRIS_OK;
 }
 
@@ -509,6 +528,8 @@ TEP_NOINLINE static bool try_header_fast(teptris_parser *ps,
     if (q >= ps->end || *q != ']') {
         return false;
     }
+    ps->cur_path.ptr = start + 1;
+    ps->cur_path.len = (size_t)(q - (start + 1));
 
     /* shape confirmed — commit the resolution */
     teptris_document *doc = ps->doc;
@@ -630,8 +651,16 @@ static bool try_keyval_fast(teptris_parser *ps, teptris_node *tbl,
     }
     size_t slot;
     if (teptris_dom_table_probe_slot(tbl, h, key.ptr, key.len, &slot) != NULL) {
-        *st_out = tep_fail_at(ps, NULL, TEPTRIS_ERR_SEMANTIC,
-                              "duplicate key '%.*s'", (int)key.len, key.ptr);
+        if (ps->cur_path.len > 0) {
+            *st_out = tep_fail_at(
+                ps, NULL, TEPTRIS_ERR_SEMANTIC,
+                "duplicate key '%.*s' in table '%.*s'", (int)key.len,
+                key.ptr, (int)ps->cur_path.len, ps->cur_path.ptr);
+        } else {
+            *st_out = tep_fail_at(ps, NULL, TEPTRIS_ERR_SEMANTIC,
+                                  "duplicate key '%.*s'", (int)key.len,
+                                  key.ptr);
+        }
         return true;
     }
     *st_out = teptris_dom_table_insert_slot(ps->doc, tbl, key, h, value, slot);
