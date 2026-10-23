@@ -4,7 +4,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(teptris
-    VERSION 0.3.7
+    VERSION 0.3.8
     DESCRIPTION "Ultra-fast TOML 1.1 parser and emitter in C"
     LANGUAGES C CXX
 )
