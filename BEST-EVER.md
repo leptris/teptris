@@ -103,8 +103,10 @@ conventions, or the owner records the scope decision here.
     references per language.
 12. API review per surface against native conventions.
 
-**Gate:** each surface documents its ergonomics decisions and any
-deliberate divergences from native shapes.
+**Gate: MET (2026-10-23)** — [API-CONVENTIONS.md](API-CONVENTIONS.md)
+documents per-surface alignment and deliberate divergences;
+[ERRORS.md](ERRORS.md) covers the error half (with the duplicate-key
+context improvement shipped in v0.3.8).
 
 ### Phase 6 — ledger discipline
 13. Bench lanes post summaries on every release; every release PR
