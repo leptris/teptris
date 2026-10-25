@@ -216,13 +216,17 @@ static void w_sep_val(teptris_writer *w, wframe *f)
 }
 
 /* emit "key = " in a section/inline-table context; arrays take bare
- * values with separators */
+ * values with separators; inline-table pairs take a ", " before every
+ * pair but the first */
 static void w_keyed_prefix(teptris_writer *w)
 {
     wframe *f = w->top;
     if (f != NULL && f->kind == F_ARRAY) {
         w_sep_val(w, f);
         return;
+    }
+    if (f != NULL && f->kind == F_ITAB) {
+        w_sep_val(w, f);
     }
     if (w->key == NULL) {
         w->st = TEPTRIS_ERR_ARG;
@@ -466,6 +470,9 @@ teptris_status teptris_writer_feed(teptris_writer *w, const uint8_t *ops,
                     w->st = TEPTRIS_ERR_STATE;
                     break;
                 }
+                if (t != NULL && t->kind == F_ITAB) {
+                    w_sep_val(w, t);
+                }
                 emit_key(&w->out, (teptris_view){w->key, w->key_len});
                 eb_put(&w->out, " = [", 4);
                 w_clear_key(w);
@@ -492,6 +499,9 @@ teptris_status teptris_writer_feed(teptris_writer *w, const uint8_t *ops,
                 if (t != NULL && t->saw_subtable) {
                     w->st = TEPTRIS_ERR_STATE;
                     break;
+                }
+                if (t != NULL && t->kind == F_ITAB) {
+                    w_sep_val(w, t);
                 }
                 emit_key(&w->out, (teptris_view){w->key, w->key_len});
                 eb_put(&w->out, " = ", 3);

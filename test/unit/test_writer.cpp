@@ -161,6 +161,82 @@ TEST(Writer, InlineArraysAndTables)
     EXPECT_NE(text.find("e = {}"), std::string::npos);
 }
 
+TEST(Writer, InlineTableMultiPair)
+{
+    /* every pair after the first needs ", " - scalars, nested inline
+     * tables, inline arrays, and datetimes all separate the same way */
+    std::vector<uint8_t> s;
+    put_key(s, "m");
+    s.push_back(0x0B); /* BEGIN-INLINE-TABLE */
+    put_key(s, "a");
+    put_int(s, 1);
+    put_key(s, "b");
+    put_str(s, "x");
+    put_key(s, "c");
+    s.push_back(0x06); /* true */
+    s.push_back(0x0C);
+    std::string text = emit_and_parse(stream(s));
+    EXPECT_NE(text.find("m = {a = 1, b = 'x', c = true}"), std::string::npos);
+}
+
+TEST(Writer, InlineTableNestedContainers)
+{
+    std::vector<uint8_t> s;
+    put_key(s, "m");
+    s.push_back(0x0B);
+    put_key(s, "a");
+    put_int(s, 1);
+    put_key(s, "n");
+    s.push_back(0x0B); /* nested inline table */
+    put_key(s, "x");
+    put_int(s, 1);
+    put_key(s, "y");
+    put_int(s, 2);
+    s.push_back(0x0C);
+    put_key(s, "arr");
+    s.push_back(0x09); /* inline array as a pair value */
+    put_int(s, 1);
+    put_int(s, 2);
+    s.push_back(0x0C);
+    s.push_back(0x0C);
+    std::string text = emit_and_parse(stream(s));
+    EXPECT_NE(text.find("m = {a = 1, n = {x = 1, y = 2}, arr = [1, 2]}"),
+              std::string::npos);
+}
+
+TEST(Writer, InlineTableDatetimePairSeparator)
+{
+    /* the mixed-corpus regression: a datetime pair followed by another
+     * pair lost its separator ({created = 2026-01-17weight = 9}) */
+    std::vector<uint8_t> s;
+    put_key(s, "m");
+    s.push_back(0x0B);
+    put_key(s, "created");
+    s.push_back(0x07); /* DATETIME */
+    s.push_back(6);    /* DATE */
+    int64_t year = 2026;
+    for (int i = 0; i < 8; i++) {
+        s.push_back((uint8_t)(year >> (8 * i)));
+    }
+    s.push_back(1);  /* month */
+    s.push_back(17); /* day */
+    s.push_back(0);  /* hour */
+    s.push_back(0);  /* minute */
+    s.push_back(0);  /* second */
+    for (int i = 0; i < 4; i++) {
+        s.push_back(0); /* nanosecond */
+    }
+    for (int i = 0; i < 8; i++) {
+        s.push_back(0); /* offset */
+    }
+    put_key(s, "weight");
+    put_int(s, 9);
+    s.push_back(0x0C);
+    std::string text = emit_and_parse(stream(s));
+    EXPECT_NE(text.find("m = {created = 2026-01-17, weight = 9}"),
+              std::string::npos);
+}
+
 TEST(Writer, Datetimes)
 {
     std::vector<uint8_t> s;
