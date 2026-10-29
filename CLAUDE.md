@@ -15,6 +15,13 @@ open gap, not a win.
   A binding version bump moves its engine pin **in the same PR**. The
   engine version is the family anchor; engine changes are patch bumps
   ("CLI is tooling").
+- **All-runtimes law** (owner, 2026-10-28): every engine release
+  ships **every binding in the same wave** — ruby, py, rs, ts. No
+  exemptions: the source+link binding (rs) ships too, carrying the
+  engine-ref bump plus whatever honest content the wave has (a
+  regression test, a bench tier), so release-plz proposes and
+  consumers read the release as "validated against engine X.Y.Z".
+  Each wave closes with the published-artifact smokes.
 - **Every release is gated by a smoke of the published artifact** from
   the registry (npm/PyPI/rubygems/crates), asserting the engine
   version inside and silence on stdout/stderr.
