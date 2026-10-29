@@ -54,6 +54,22 @@ When the TOML specification finalizes 1.1, this contract is already
 it; if the final text diverges from the draft, the change is an
 engine patch-line event, measured and released like any other.
 
+## The release law: every engine release ships every runtime
+
+An engine release is not complete until **all four bindings publish
+in the same wave**: teptris-ruby, teptris-py, teptris-rs, and
+teptris-ts (owner rule, 2026-10-28). No exemptions — the "source +
+link" binding ships too, carrying the engine-ref bump and whatever
+honest content the wave has (a regression test, a bench tier), so
+consumers can read the release as "validated against engine X.Y.Z".
+
+Each binding follows the family versioning law (a binding version is
+`{engine version}.{binding iteration}`; crates/npm keep their
+registry-required 3-part forms) and moves its engine pin **in the
+same PR**. Every wave closes with a smoke of the published artifact
+from its registry, asserting the engine version inside and silence
+on stdout/stderr.
+
 ## The verification matrix (current standing)
 
 | check | standing |
