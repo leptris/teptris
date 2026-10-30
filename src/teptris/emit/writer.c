@@ -111,16 +111,28 @@ void teptris_writer_free(teptris_writer *w)
 static void w_take_key(teptris_writer *w, const char *k, size_t klen)
 {
     free(w->key);
-    w->key = NULL;
-    w->key_len = 0;
     if (klen > 0) {
         w->key = malloc(klen);
         if (w->key == NULL) {
+            w->key = NULL;
+            w->key_len = 0;
             w->st = TEPTRIS_ERR_ALLOC;
             return;
         }
         memcpy(w->key, k, klen);
         w->key_len = klen;
+    } else {
+        /* an empty key stays PENDING: NULL means "no key", and the
+         * keyed-prefix checks treat NULL as absent. The parse side
+         * accepts '' = 1, so the writer must emit it ('' via emit_key) */
+        w->key = malloc(1);
+        if (w->key == NULL) {
+            w->key_len = 0;
+            w->st = TEPTRIS_ERR_ALLOC;
+            return;
+        }
+        w->key[0] = '\0';
+        w->key_len = 0;
     }
 }
 
@@ -386,12 +398,6 @@ teptris_status teptris_writer_feed(teptris_writer *w, const uint8_t *ops,
             dt.offset_seconds = (int32_t)off;
             i += 26;
             w_keyed_prefix(w);
-            if (w->st != TEPTRIS_OK) {
-                break;
-            }
-            emit_dt(&w->out, &dt, (teptris_kind)kb);
-            w_end_line(w);
-            break;
             if (w->st != TEPTRIS_OK) {
                 break;
             }

@@ -41,7 +41,11 @@ teptris implements the **TOML 1.1 draft as a strict superset of
 - Every TOML 1.0 document parses unchanged.
 - The draft's extensions are accepted by default: newlines and
   trailing commas inside inline tables, optional seconds in
-  time-of-day, Unicode bare keys, and the `\e` escape.
+  time-of-day, and the `\e` escape. (An earlier revision of this
+  contract also claimed Unicode bare keys; the pinned toml-test 1.1
+  grammar keeps them **invalid** — `invalid/key/special-character.toml`
+  — and the parser correctly rejects them. The claim is withdrawn,
+  owner-noted 2026-10-30.)
 - Conformance is measured, not claimed: **712/712** on the toml-test
   1.1 view (pin `ff49d109`), and the 1.0 view is 700/9 — the nine
   accepts are exactly the 1.1-legalized constructs above, listed in

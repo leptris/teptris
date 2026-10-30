@@ -237,6 +237,45 @@ TEST(Writer, InlineTableDatetimePairSeparator)
               std::string::npos);
 }
 
+TEST(Writer, EmptyKeys)
+{
+    /* the parse side accepts '' = 1 (quoted empty keys are legal
+     * TOML); the writer must emit them, not conflate the empty key
+     * with "no pending key" */
+    {
+        std::vector<uint8_t> s;
+        put_key(s, ""); /* KEY op with klen 0 */
+        put_int(s, 1);
+        std::string text = emit_and_parse(stream(s));
+        EXPECT_NE(text.find("'' = 1"), std::string::npos);
+    }
+    /* empty key inside an inline table: {'' = 1, b = 2} */
+    {
+        std::vector<uint8_t> s;
+        put_key(s, "m");
+        s.push_back(0x0B);
+        put_key(s, "");
+        put_int(s, 1);
+        put_key(s, "b");
+        put_int(s, 2);
+        s.push_back(0x0C);
+        std::string text = emit_and_parse(stream(s));
+        EXPECT_NE(text.find("{'' = 1, b = 2}"), std::string::npos);
+    }
+    /* [''] section */
+    {
+        std::vector<uint8_t> s;
+        put_key(s, "");
+        s.push_back(0x08);
+        put_key(s, "x");
+        put_int(s, 1);
+        s.push_back(0x0C);
+        std::string text = emit_and_parse(stream(s));
+        EXPECT_NE(text.find("['']"), std::string::npos);
+        EXPECT_NE(text.find("x = 1"), std::string::npos);
+    }
+}
+
 TEST(Writer, Datetimes)
 {
     std::vector<uint8_t> s;
