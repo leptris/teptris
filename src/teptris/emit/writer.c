@@ -9,7 +9,11 @@
  *
  * Op grammar (little-endian, mirroring the flatten payload styles):
  *   0x00 END-OF-CHUNK
- *   0x01 KEY       u8 klen <bytes>        (klen 0 clears the pending key)
+ *   0x01 KEY       u8 klen <bytes>        (klen 0 = the EMPTY key '';
+ *                         array ELEMENTS carry no key op at all - the
+ *                         array-context prefix never consults the key,
+ *                         so a stale/stray key inside an array is a
+ *                         grammar violation, enforced ERR_ARG)
  *   0x02 STRING    u32 len <bytes>
  *   0x03 INT       i64
  *   0x04 FLOAT     f64

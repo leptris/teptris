@@ -276,6 +276,26 @@ TEST(Writer, EmptyKeys)
     }
 }
 
+TEST(Writer, MixedArraysWithoutKeyMarkers)
+{
+    /* regression guard for v0.3.10's empty-key change: array elements
+     * carry NO key op at all (the null-key marker is gone from the
+     * grammar); a stale pending key inside an array must not trip the
+     * inline-element guards. [1, {c = 'x'}] mixes scalar + inline
+     * table elements. */
+    std::vector<uint8_t> s;
+    put_key(s, "b");
+    s.push_back(0x09); /* BEGIN-ARRAY */
+    put_int(s, 1);     /* element: no key op */
+    s.push_back(0x0B); /* inline-table element: no key op */
+    put_key(s, "c");
+    put_str(s, "x");
+    s.push_back(0x0C);
+    s.push_back(0x0C); /* close array */
+    std::string text = emit_and_parse(stream(s));
+    EXPECT_NE(text.find("b = [1, {c = 'x'}]"), std::string::npos);
+}
+
 TEST(Writer, Datetimes)
 {
     std::vector<uint8_t> s;
