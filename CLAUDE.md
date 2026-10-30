@@ -11,7 +11,11 @@ open gap, not a win.
 ## Operating laws (this family)
 
 - **Family versioning law**: a binding version is
-  `{engine version}.{binding iteration}`; npm/crates use 3-part semver.
+  `{engine version}.{binding iteration}`. crates.io now **matches the
+  engine version exactly** (owner ruling 2026-10-30: teptris-rs 0.3.9
+  rides engine v0.3.9; the 0.1.x line is retired). npm keeps the
+  compressed `{engine major.minor}.{binding iteration}` form — its own
+  0.3.9 is already published, so the line cannot drop to match.
   A binding version bump moves its engine pin **in the same PR**. The
   engine version is the family anchor; engine changes are patch bumps
   ("CLI is tooling").

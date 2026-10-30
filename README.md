@@ -64,11 +64,14 @@ honest content the wave has (a regression test, a bench tier), so
 consumers can read the release as "validated against engine X.Y.Z".
 
 Each binding follows the family versioning law (a binding version is
-`{engine version}.{binding iteration}`; crates/npm keep their
-registry-required 3-part forms) and moves its engine pin **in the
-same PR**. Every wave closes with a smoke of the published artifact
-from its registry, asserting the engine version inside and silence
-on stdout/stderr.
+`{engine version}.{binding iteration}`; crates.io **matches the engine
+version exactly** — teptris-rs 0.3.9 rides engine v0.3.9, owner
+ruling 2026-10-30 — and npm keeps the compressed
+`{engine major.minor}.{binding iteration}` form, since npm's own 0.3.9
+is already published and the line cannot drop) and moves its engine
+pin **in the same PR**. Every wave closes with a smoke of the
+published artifact from its registry, asserting the engine version
+inside and silence on stdout/stderr.
 
 ## The verification matrix (current standing)
 
