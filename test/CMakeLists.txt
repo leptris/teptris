@@ -22,6 +22,7 @@ add_executable(test_unit
     unit/test_datetime.cpp
     unit/test_tables.cpp
     unit/test_errors.cpp
+    unit/test_edit.cpp
     unit/test_emit.cpp
     unit/test_writer.cpp
     unit/test_corpus.cpp
@@ -41,7 +42,7 @@ gtest_discover_tests(test_unit DISCOVERY_TIMEOUT 60)
 # these ctest cases assert exit codes and output shapes without a
 # shell (cmake -P script mode runs on every platform).
 if(TARGET teptris_cli)
-    foreach(case version to_json_natural to_json_conformance natural_rejects_on_format)
+    foreach(case version to_json_natural to_json_conformance natural_rejects_on_format set_preserves_formatting set_string_and_missing)
         add_test(NAME cli_${case}
                  COMMAND ${CMAKE_COMMAND}
                          -DCLI=$<TARGET_FILE:teptris_cli>
