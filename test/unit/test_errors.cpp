@@ -149,3 +149,45 @@ TEST(Errors, ByteOffsetSpans)
         EXPECT_EQ(e->end_offset, e->start_offset) << "input: " << c.in;
     }
 }
+
+TEST(Errors, DottedKeyDepthCapped)
+{
+    /* each dotted component is a table level: the 512 ceiling applies
+     * to key paths too (the audit-round-2 hole: a.b.b...=1 built an
+     * uncapped-depth tree that blew the recursive emit/free passes) */
+    std::string in = "a.";
+    for (int i = 0; i < 600; i++) in += "b.";
+    in += "c = 1\n";
+    teptris_document *doc = nullptr;
+    teptris_status st = teptris_parse(in.data(), in.size(), nullptr, &doc);
+    EXPECT_EQ(st, TEPTRIS_ERR_DEPTH);
+    if (doc) teptris_document_free(doc);
+    /* just under the cap still parses */
+    std::string ok = "a.";
+    for (int i = 0; i < 100; i++) ok += "b.";
+    ok += "c = 1\n";
+    doc = nullptr;
+    st = teptris_parse(ok.data(), ok.size(), nullptr, &doc);
+    EXPECT_EQ(st, TEPTRIS_OK);
+    DocGuard g(doc);
+}
+
+TEST(Errors, MultilineCrlfNormalizes)
+{
+    /* CRLF inside multi-line strings normalizes to LF (tomllib
+     * reference: 'line\n' - we emitted a lone '\r') */
+    const char *doc1 = "a = \"\"\"\r\nline\r\n\"\"\"";
+    const char *doc2 = "a = '''\r\nline\r\n'''";
+    for (const char *d : {doc1, doc2}) {
+        teptris_document *doc = nullptr;
+        ASSERT_EQ(teptris_parse(d, strlen(d), nullptr, &doc), TEPTRIS_OK);
+        DocGuard g(doc);
+        teptris_view s;
+        ASSERT_EQ(teptris_node_string(
+                      teptris_node_table_get(teptris_document_root(doc),
+                                             "a", 1), &s),
+                  TEPTRIS_OK);
+        std::string got(s.ptr, s.len);
+        EXPECT_EQ(got, "line\n") << "got " << got;
+    }
+}
