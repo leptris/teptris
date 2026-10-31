@@ -82,9 +82,13 @@ elseif(CASE STREQUAL "set_string_and_missing")
     execute_process(COMMAND "${CLI}" set
                             "${CMAKE_BINARY_DIR}/cli_set.toml"
                             serve.inline "{b = 2}"
-                    ERROR_VARIABLE ERR RESULT_VARIABLE RC)
-    if(NOT RC EQUAL 2)
-        message(FATAL_ERROR "set inline target must rc=2: rc=${RC}")
+                    RESULT_VARIABLE RC)
+    if(NOT RC EQUAL 0)
+        message(FATAL_ERROR "set inline target must succeed (v2): rc=${RC}")
+    endif()
+    file(READ "${CMAKE_BINARY_DIR}/cli_set.toml" GOT)
+    if(NOT GOT MATCHES "inline = \\{b = 2\\}")
+        message(FATAL_ERROR "set inline lost: ${GOT}")
     endif()
 else()
     message(FATAL_ERROR "unknown CASE ${CASE}")
