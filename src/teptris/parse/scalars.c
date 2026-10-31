@@ -201,7 +201,8 @@ teptris_status tep_scan_basic(teptris_parser *ps, bool ml, char *out,
         }
         if (c == '\r') {
             if (ml && ps->p + 1 < ps->end && ps->p[1] == '\n') {
-                PUTCH(out, n, '\r');
+                PUTCH(out, n, '\n'); /* CRLF normalizes to LF inside multi-line
+                                          strings (tomllib reference) */
                 tep_adv(ps, 2);
                 continue;
             }
@@ -267,7 +268,8 @@ teptris_status tep_scan_literal(teptris_parser *ps, bool ml, char *out,
         }
         if (c == '\r') {
             if (ml && ps->p + 1 < ps->end && ps->p[1] == '\n') {
-                PUTCH(out, n, '\r');
+                PUTCH(out, n, '\n'); /* CRLF normalizes to LF inside multi-line
+                                          strings (tomllib reference) */
                 tep_adv(ps, 2);
                 continue;
             }

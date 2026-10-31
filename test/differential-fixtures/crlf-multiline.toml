@@ -1,0 +1,19 @@
+title = "CRLF multi-line fixture"
+
+# the audit-round-2 hole: no CRLF multi-line case existed in
+# either the toml-test view or the bench corpus, so a parser that
+# emitted a lone CR diverged from tomllib while every gate stayed
+# green. This file is CRLF throughout (both line endings in the
+# multi-line strings are real CRLF byte pairs).
+mb = """
+line1
+line2
+"""
+ml = '''
+lit1
+lit2
+'''
+arr = [1, 2]
+
+[tab]
+host = "example"

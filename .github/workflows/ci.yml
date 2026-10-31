@@ -128,7 +128,7 @@ jobs:
           bash scripts/toml-test-run.sh corpus/toml-test
           python3 scripts/gen_bench_corpus.py bench-corpus
           python3 scripts/differential.py "$TEPTRIS_CLI" \
-            corpus/toml-test/tests/valid bench-corpus
+            corpus/toml-test/tests/valid bench-corpus test/differential-fixtures
 
   conformance:
     name: toml-test (1.1 view)

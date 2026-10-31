@@ -104,6 +104,15 @@ teptris_status teptris_parse_key_path(teptris_parser *ps,
         }
         v[n++] = key;
 
+        /* each dotted component is one table level in the DOM - cap it
+         * against the same ceiling as '['/'{' nesting, or a hostile
+         * a.b.b.b...=1 line builds an uncapped-depth tree that blows
+         * the recursive emit/free passes */
+        if (n > ps->max_depth) {
+            return tep_fail_at(ps, NULL, TEPTRIS_ERR_DEPTH,
+                               "key path too deep");
+        }
+
         st = tep_skip_ws(ps);
         if (st != TEPTRIS_OK) {
             return st;
