@@ -143,15 +143,17 @@ TEPTRIS_API const teptris_node * teptris_node_table_get(const teptris_node *node
 TEPTRIS_API teptris_status teptris_document_emit(const teptris_document *doc,
                                      char **buf, size_t *len);
 
-/* In-place scalar edit (format-preserving v1): rewrite exactly the
+/* In-place scalar edit (format-preserving v2): rewrite exactly the
  * value bytes of one key = value line; every other byte of the source
- * is preserved (comments, blank lines, formatting). dotted.key.path
- * addresses the key (bare and quoted components; the path may carry a
- * [table] prefix, e.g. "t.x" for x inside [t]). replacement is the
- * value's TEXT (e.g. "42", "\"str\"", "2026-01-01") and must form a
- * valid single-line value: it is validated by parsing "k = <text>".
- * v1 rejects multiline and inline-collection targets with
- * TEPTRIS_ERR_ARG. Memory: *buf is malloc'd; caller frees. */
+ * is preserved (comments, blank lines, formatting, CRLF endings).
+ * dotted.key.path addresses the key (bare and quoted components; the
+ * path may carry a [table] prefix, e.g. "t.x" for x inside [t]).
+ * replacement is the value's TEXT (e.g. "42", "\"str\"", "2026-01-01",
+ * or a multiline string value) and is validated by parsing
+ * "k = <text>". v2 splices multiline strings and inline collections
+ * too; those splices are parse-verified before handback (a
+ * mis-scanned span rejects with TEPTRIS_ERR_ARG instead of
+ * corrupting). Memory: *buf is malloc'd; caller frees. */
 TEPTRIS_API teptris_status teptris_edit_scalar(const char *src, size_t len,
                                                const char *keypath,
                                                const char *replacement,

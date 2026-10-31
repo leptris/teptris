@@ -1,5 +1,6 @@
 /* Format-preserving scalar edit: byte-identity of everything except
- * the spliced value; section scoping; the v1 rejections. */
+ * the spliced value; section scoping; the v2 spans (multiline,
+ * inline) and their rejections. */
 #include <cstring>
 #include <string>
 
@@ -82,22 +83,60 @@ TEST(Edit, NoMatchRejections)
               TEPTRIS_ERR_STATE);
 }
 
-TEST(Edit, V1Rejections)
+TEST(Edit, MultilineStringTarget)
+{
+    std::string src = "m = \"\"\"\nline one\nline two\n\"\"\"  # keep\nz = 9\n";
+    std::string got = edit_ok(src, "m", "\"new\"");
+    EXPECT_EQ(got, "m = \"new\"  # keep\nz = 9\n");
+    /* a literal multiline target splices too */
+    std::string src2 = "q = '''\nraw\n'''\nz = 1\n";
+    EXPECT_EQ(edit_ok(src2, "q", "3"), "q = 3\nz = 1\n");
+}
+
+TEST(Edit, InlineCollectionTargets)
+{
+    std::string src = "t = {a = 1, b = \"x\"}  # c\nz = 0\n";
+    EXPECT_EQ(edit_ok(src, "t", "{a = 2, b = \"y\"}"),
+              "t = {a = 2, b = \"y\"}  # c\nz = 0\n");
+    std::string src2 = "arr = [\n  1,\n  2,\n]\nz = 0\n";
+    EXPECT_EQ(edit_ok(src2, "arr", "[3, 4]"), "arr = [3, 4]\nz = 0\n");
+    /* brackets inside strings do not close the collection */
+    std::string src3 = "t = {s = \"]}\", n = 1}\nz = 0\n";
+    EXPECT_EQ(edit_ok(src3, "t", "{s = \"<>\", n = 2}"),
+              "t = {s = \"<>\", n = 2}\nz = 0\n");
+}
+
+TEST(Edit, MultilineReplacement)
+{
+    std::string repl = "\"\"\"\nline one\nline two\n\"\"\"";
+    std::string got = edit_ok("a = 1\nz = 2\n", "a", repl.c_str());
+    EXPECT_EQ(got, "a = \"\"\"\nline one\nline two\n\"\"\"\nz = 2\n");
+}
+
+TEST(Edit, CrlfSourceKeepsCrlf)
+{
+    std::string src = "# c\r\nversion = \"1.0\"\r\nport = 8080\r\n";
+    std::string got = edit_ok(src, "port", "9090");
+    EXPECT_EQ(got, "# c\r\nversion = \"1.0\"\r\nport = 9090\r\n");
+}
+
+TEST(Edit, V2Rejections)
 {
     char *out = nullptr;
     size_t olen = 0;
-    const char *ml = "m = \"\"\"\nline\n\"\"\"\n";
+    /* unterminated multiline string */
+    const char *ml = "m = \"\"\"\nline\n";
     EXPECT_EQ(teptris_edit_scalar(ml, strlen(ml), "m", "x", &out, &olen),
               TEPTRIS_ERR_ARG);
-    const char *inl = "t = {a = 1}\n";
+    /* unbalanced inline collection */
+    const char *inl = "t = {a = 1\n";
     EXPECT_EQ(teptris_edit_scalar(inl, strlen(inl), "t", "x", &out, &olen),
               TEPTRIS_ERR_ARG);
-    const char *arr = "a = [1, 2]\n";
-    EXPECT_EQ(teptris_edit_scalar(arr, strlen(arr), "a", "x", &out, &olen),
-              TEPTRIS_ERR_ARG);
-    /* a multiline replacement cannot splice into a single line */
-    EXPECT_EQ(teptris_edit_scalar("a = 1\n", 6, "a", "\"\"\"\nx\n\"\"\"",
-                                  &out, &olen),
+    /* a string-target splice that leaves garbage rejects (verified):
+     * the span covers only "a", the junk after it breaks the parse */
+    const char *junk = "k = \"a\" trailing_garbage\n";
+    EXPECT_EQ(teptris_edit_scalar(junk, strlen(junk), "k", "\"b\"", &out,
+                                  &olen),
               TEPTRIS_ERR_ARG);
 }
 

@@ -1,4 +1,4 @@
-/* Format-preserving scalar edit (v1): rewrite exactly the value bytes
+/* Format-preserving scalar edit (v2): rewrite exactly the value bytes
  * of one key = value line; every other byte of the source is
  * preserved. The target is addressed by a dotted key path that may
  * carry a [table] prefix ("t.x" addresses x inside [t]; the LAST
@@ -7,10 +7,10 @@
  * TEXT and is validated by parsing "k = <replacement>" - the editor
  * stays value-agnostic.
  *
- * v1 scope: single-line scalar values (numbers, booleans, dates,
- * single-line quoted strings). Multiline strings and inline
- * collections are rejected with TEPTRIS_ERR_ARG rather than
- * half-understood. */
+ * v2 scope: single-line scalars, multiline strings and inline
+ * collections all splice; v2 spans are parse-verified before handback
+ * so a mis-scanned span rejects instead of corrupting. CRLF line
+ * endings are preserved (the line-tail \r is outside the span). */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -167,60 +167,106 @@ static int edit_section_header(const char *p, const char *end,
     return 1;
 }
 
-/* the value span on a keyval line: p sits past '='. Absolute [start,
- * end) of the value bytes. Single-line scalars only: returns 0, or
- * -1 for multiline/inline targets. */
+/* Skip one string spanning from its opening quote at p; mirrors the
+ * engine's scanners: quote-run close (run >= 3 for multiline), escape
+ * tracking in basic strings. Returns the pointer past the string, or
+ * NULL when unterminated. */
+static const char *edit_skip_string(const char *p, const char *end)
+{
+    char q = *p;
+    int ml = (p + 2 < end && p[1] == q && p[2] == q);
+    p += ml ? 3 : 1;
+    while (p < end) {
+        char c = *p;
+        if (q == '"' && c == '\\') {
+            if (p + 1 >= end) {
+                return NULL; /* unterminated escape */
+            }
+            p += 2;
+            continue;
+        }
+        if (c == q) {
+            int run = 0;
+            while (p + run < end && p[run] == q) {
+                run++;
+            }
+            if (!ml) {
+                return p + 1; /* single-line closes at the first quote */
+            }
+            if (run >= 3) {
+                return p + run; /* multiline closes at the run */
+            }
+            p += run; /* 1-2 quotes inside multiline: content */
+            continue;
+        }
+        p++;
+    }
+    return NULL;
+}
+
+/* the value span of a keyval line: p sits past '='. Absolute [start,
+ * end) of the value bytes. Returns 0 with *verified unset for the
+ * single-line scalar fast path (v1 contract: no parse required), or 1
+ * for string/inline spans whose splice must be parse-verified, or -1
+ * for a malformed span. */
 static int edit_value_span(const char *p, const char *end,
-                           const char **vstart, const char **vend)
+                           const char **vstart, const char **vend,
+                           int *verified)
 {
     p = edit_skip_ws(p, end);
     if (p >= end) {
         return -1;
     }
     const char *vs = p;
-    if (*p == '\'') {
-        p++;
-        while (p < end && *p != '\'') {
-            if (*p == '\n') {
-                return -1;
-            }
-            p++;
-        }
-        if (p >= end) {
+    const char *ve = NULL;
+
+    if (*p == '\'' || *p == '"') {
+        p = edit_skip_string(p, end);
+        if (p == NULL) {
             return -1;
         }
-        p++;
-    } else if (*p == '"') {
-        if (p + 2 < end && p[1] == '"' && p[2] == '"') {
-            return -1; /* multiline basic */
-        }
-        p++;
-        while (p < end && *p != '"') {
-            if (*p == '\n') {
-                return -1;
+        ve = p;
+        *verified = 1;
+    } else if (*p == '{' || *p == '[') {
+        int depth = 0;
+        while (p < end) {
+            char c = *p;
+            if (c == '\'' || c == '"') {
+                p = edit_skip_string(p, end);
+                if (p == NULL) {
+                    return -1;
+                }
+                continue;
             }
-            if (*p == '\\' && p + 1 < end) {
-                p += 2;
+            if (c == '{' || c == '[') {
+                depth++;
+            } else if (c == '}' || c == ']') {
+                depth--;
+                p++;
+                if (depth == 0) {
+                    ve = p;
+                    break;
+                }
                 continue;
             }
             p++;
         }
-        if (p >= end) {
-            return -1;
+        if (ve == NULL) {
+            return -1; /* unbalanced inline collection */
         }
-        p++;
-    } else if (*p == '{' || *p == '[') {
-        return -1; /* inline collections: v1 out of scope */
+        *verified = 1;
     } else {
         while (p < end && *p != '\n' && *p != '#') {
             p++;
         }
-        while (p > vs && edit_is_ws(p[-1])) {
-            p--;
+        while (p > vs && (edit_is_ws(p[-1]) || p[-1] == '\r')) {
+            p--; /* CRLF: the line-tail \r stays outside the span */
         }
+        ve = p;
+        *verified = 0;
     }
     *vstart = vs;
-    *vend = p;
+    *vend = ve;
     return 0;
 }
 
@@ -290,22 +336,23 @@ teptris_status teptris_edit_scalar(const char *src, size_t len,
     }
     const char *end = src + len;
 
-    /* validate the replacement by parsing it as a keyval */
+    /* validate the replacement by parsing it as a keyval; multiline
+     * replacements (multiline-string values) are fine - the probe
+     * parse is the only gate */
     {
         size_t rlen = strlen(replacement);
-        if (rlen == 0 || rlen > 4096) {
+        if (rlen == 0 || rlen > 16384) {
             return TEPTRIS_ERR_ARG;
         }
-        if (strchr(replacement, '\n') != NULL) {
-            return TEPTRIS_ERR_ARG; /* v1: single-line replacements */
+        char *probe = malloc(rlen + 16);
+        if (probe == NULL) {
+            return TEPTRIS_ERR_ALLOC;
         }
-        char probe[4200];
-        int n = snprintf(probe, sizeof probe, "k = %s\n", replacement);
-        if (n <= 0 || (size_t)n >= sizeof probe) {
-            return TEPTRIS_ERR_ARG;
-        }
+        int n = snprintf(probe, rlen + 16, "k = %s\n", replacement);
         teptris_document *probe_doc = NULL;
-        teptris_status st = teptris_parse(probe, (size_t)n, NULL, &probe_doc);
+        teptris_status st = teptris_parse(probe, (size_t)n, NULL,
+                                          &probe_doc);
+        free(probe);
         if (st != TEPTRIS_OK) {
             if (probe_doc != NULL) {
                 teptris_document_free(probe_doc);
@@ -355,7 +402,11 @@ teptris_status teptris_edit_scalar(const char *src, size_t len,
                     if (eq < le && *eq == '=') {
                         const char *vs;
                         const char *ve;
-                        if (edit_value_span(eq + 1, le, &vs, &ve) != 0) {
+                        int verified = 0;
+                        /* the span scan bounds at the whole source:
+                         * multiline and inline values cross lines */
+                        if (edit_value_span(eq + 1, end, &vs, &ve,
+                                            &verified) != 0) {
                             return TEPTRIS_ERR_ARG;
                         }
                         size_t rlen = strlen(replacement);
@@ -368,6 +419,22 @@ teptris_status teptris_edit_scalar(const char *src, size_t len,
                         memcpy(out, src, pre);
                         memcpy(out + pre, replacement, rlen);
                         memcpy(out + pre + rlen, ve, post);
+                        if (verified) {
+                            /* v2 spans are parse-verified: a
+                             * mis-scanned span rejects instead of
+                             * corrupting */
+                            teptris_document *vd = NULL;
+                            teptris_status vst = teptris_parse(out,
+                                pre + rlen + post, NULL, &vd);
+                            if (vst != TEPTRIS_OK) {
+                                if (vd != NULL) {
+                                    teptris_document_free(vd);
+                                }
+                                free(out);
+                                return TEPTRIS_ERR_ARG;
+                            }
+                            teptris_document_free(vd);
+                        }
                         *buf = out;
                         *out_len = pre + rlen + post;
                         return TEPTRIS_OK;
