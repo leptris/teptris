@@ -70,6 +70,14 @@ jobs:
             -Isrc/include -Isrc -o fuzz_parse_batch \
             test/fuzz/fuzz_parse_batch.c \
             src/teptris/*.c src/teptris/*/*.c src/teptris/*/*/*.c
+          # format-preserving edit harness: the input is sliced into
+          # source/key/replacement - the single-buffer handback
+          # contract, the splice-and-reject loop, all under the same
+          # sanitizers
+          clang -fsanitize=fuzzer,address,undefined -g -O1 -std=c99 \
+            -Isrc/include -Isrc -o fuzz_edit \
+            test/fuzz/fuzz_edit.c \
+            src/teptris/*.c src/teptris/*/*.c src/teptris/*/*/*.c
 
       - name: Fuzz
         run: |
@@ -80,14 +88,16 @@ jobs:
             echo "FUZZ_EXTENDED=1" >> "$GITHUB_ENV"
           fi
           SECS=$((MINS * 60))
-          QUARTER=$((SECS / 4))
-          ./fuzz_parse corpus -max_total_time="$QUARTER" -timeout=5 \
+          SLICE=$((SECS / 5))
+          ./fuzz_parse corpus -max_total_time="$SLICE" -timeout=5 \
             -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
-          ./fuzz_plan corpus -max_total_time="$QUARTER" -timeout=5 \
+          ./fuzz_plan corpus -max_total_time="$SLICE" -timeout=5 \
             -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
-          ./fuzz_dump corpus -max_total_time="$QUARTER" -timeout=5 \
+          ./fuzz_dump corpus -max_total_time="$SLICE" -timeout=5 \
             -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
-          ./fuzz_parse_batch corpus -max_total_time="$QUARTER" -timeout=5 \
+          ./fuzz_parse_batch corpus -max_total_time="$SLICE" -timeout=5 \
+            -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
+          ./fuzz_edit corpus -max_total_time="$SLICE" -timeout=5 \
             -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
 
       - name: Differential over the mutated corpus
