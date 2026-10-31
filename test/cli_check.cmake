@@ -44,6 +44,48 @@ elseif(CASE STREQUAL "natural_rejects_on_format")
     if(RC EQUAL 0)
         message(FATAL_ERROR "format --natural must be rejected (rc=2)")
     endif()
+elseif(CASE STREQUAL "set_preserves_formatting")
+    file(WRITE "${CMAKE_BINARY_DIR}/cli_set.toml"
+         "# conf\nversion = \"1.2.3\"  # keep\n[serve]\nport = 8080\n"
+         "inline = {a = 1}\n")
+    execute_process(COMMAND "${CLI}" set
+                            "${CMAKE_BINARY_DIR}/cli_set.toml"
+                            serve.port 9090
+                    RESULT_VARIABLE RC)
+    if(NOT RC EQUAL 0)
+        message(FATAL_ERROR "set: rc=${RC}")
+    endif()
+    file(READ "${CMAKE_BINARY_DIR}/cli_set.toml" GOT)
+    if(NOT GOT MATCHES "port = 9090" OR NOT GOT MATCHES "# conf"
+       OR NOT GOT MATCHES "# keep")
+        message(FATAL_ERROR "set lost formatting: ${GOT}")
+    endif()
+elseif(CASE STREQUAL "set_string_and_missing")
+    execute_process(COMMAND "${CLI}" set
+                            "${CMAKE_BINARY_DIR}/cli_set.toml"
+                            version "\"2.0.0\""
+                    RESULT_VARIABLE RC)
+    if(NOT RC EQUAL 0)
+        message(FATAL_ERROR "set string: rc=${RC}")
+    endif()
+    file(READ "${CMAKE_BINARY_DIR}/cli_set.toml" GOT)
+    if(NOT GOT MATCHES "version = \"2.0.0\"")
+        message(FATAL_ERROR "set string lost: ${GOT}")
+    endif()
+    execute_process(COMMAND "${CLI}" set
+                            "${CMAKE_BINARY_DIR}/cli_set.toml"
+                            no.such.key 1
+                    OUTPUT_VARIABLE OUT ERROR_VARIABLE ERR RESULT_VARIABLE RC)
+    if(NOT RC EQUAL 1)
+        message(FATAL_ERROR "set missing key must rc=1: rc=${RC}")
+    endif()
+    execute_process(COMMAND "${CLI}" set
+                            "${CMAKE_BINARY_DIR}/cli_set.toml"
+                            serve.inline "{b = 2}"
+                    ERROR_VARIABLE ERR RESULT_VARIABLE RC)
+    if(NOT RC EQUAL 2)
+        message(FATAL_ERROR "set inline target must rc=2: rc=${RC}")
+    endif()
 else()
     message(FATAL_ERROR "unknown CASE ${CASE}")
 endif()

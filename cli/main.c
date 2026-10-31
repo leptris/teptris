@@ -16,9 +16,13 @@ static void usage(FILE *out, const char *prog)
             "                  non-finite floats become null)\n"
             "  format          parse and re-emit canonical TOML\n"
             "  validate        exit 0 when valid, 1 with line:col otherwise\n"
+            "  set <file> <key.path> <value>\n"
+            "                  format-preserving in-place edit: rewrite\n"
+            "                  exactly that value's bytes (single-line\n"
+            "                  scalars; comments and formatting kept)\n"
             "  version         print the library version\n"
             "\n"
-            "Reads stdin when file is '-' or omitted.\n",
+            "Reads stdin when file is '-' or omitted (not set).\n",
             prog);
 }
 
@@ -77,6 +81,50 @@ int main(int argc, char **argv)
 
     if (strcmp(cmd, "version") == 0) {
         printf("%s\n", teptris_version_string());
+        return 0;
+    }
+    if (strcmp(cmd, "set") == 0) {
+        if (argc != 5) {
+            fprintf(stderr,
+                    "usage: %s set <file> <key.path> <value>\n", argv[0]);
+            return 2;
+        }
+        size_t slen = 0;
+        char *src = read_all(argv[2], &slen);
+        if (src == NULL) {
+            fprintf(stderr, "teptris: cannot read %s\n", argv[2]);
+            return 2;
+        }
+        char *out = NULL;
+        size_t olen = 0;
+        teptris_status st = teptris_edit_scalar(src, slen, argv[3],
+                                                argv[4], &out, &olen);
+        free(src);
+        if (st == TEPTRIS_ERR_STATE) {
+            fprintf(stderr, "teptris: key not found: %s\n", argv[3]);
+            return 1;
+        }
+        if (st == TEPTRIS_ERR_ARG) {
+            fprintf(stderr,
+                    "teptris: cannot edit %s (v1: single-line scalar "
+                    "values; the replacement must be one valid TOML "
+                    "value)\n",
+                    argv[3]);
+            return 2;
+        }
+        if (st != TEPTRIS_OK) {
+            fprintf(stderr, "teptris: edit failed (status %d)\n", (int)st);
+            return 2;
+        }
+        FILE *f = fopen(argv[2], "wb");
+        if (f == NULL) {
+            fprintf(stderr, "teptris: cannot write %s\n", argv[2]);
+            free(out);
+            return 2;
+        }
+        fwrite(out, 1, olen, f);
+        fclose(f);
+        free(out);
         return 0;
     }
     if (strcmp(cmd, "parse") != 0 && strcmp(cmd, "to-json") != 0 &&
