@@ -2,6 +2,33 @@
 
 #include "util.hpp"
 
+#include <cstdlib>
+#include <cstring>
+
+/* The fuzzer's find (teptris#nightly 2026-10-31): a datetime whose
+ * HH:MM ends the buffer exactly made the seconds-optional probe read
+ * one byte past the heap span. C-string tests mask this - the probe
+ * lands on the NUL - so these spans are heap-exact, no terminator. */
+TEST(Datetime, EofTruncatedOptionalSeconds)
+{
+    const char *cases[] = {
+        "a = 1979-05-27T07:32",
+        "a = 1979-05-27 07:32",
+        "a = 07:32",
+    };
+    for (const char *in : cases) {
+        size_t len = strlen(in);
+        char *heap = static_cast<char *>(malloc(len));
+        ASSERT_NE(heap, nullptr);
+        memcpy(heap, in, len);
+        teptris_document *doc = nullptr;
+        teptris_status st = teptris_parse(heap, len, nullptr, &doc);
+        free(heap);
+        EXPECT_EQ(st, TEPTRIS_OK) << "input: " << in;
+        DocGuard g(doc);
+    }
+}
+
 TEST(Datetime, OffsetKinds)
 {
     teptris_document *doc = parse_ok(
