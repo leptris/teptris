@@ -105,7 +105,7 @@ teptris_status teptris_parse_datetime(teptris_parser *ps, teptris_node **out)
         int mi = d2(p + 3);
         int s = 0; /* TOML 1.1: seconds optional */
         size_t consumed = 5;
-        if (p[5] == ':') {
+        if ((size_t)(end - p) >= 6 && p[5] == ':') {
             if ((size_t)(end - p) < 8 || !is_dig(p + 6) || !is_dig(p + 7)) {
                 return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX,
                                    "invalid second");
