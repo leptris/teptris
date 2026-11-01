@@ -106,9 +106,9 @@ int main(int argc, char **argv)
         }
         if (st == TEPTRIS_ERR_ARG) {
             fprintf(stderr,
-                    "teptris: cannot edit %s (v1: single-line scalar "
-                    "values; the replacement must be one valid TOML "
-                    "value)\n",
+                    "teptris: cannot edit %s (the replacement must be "
+                    "one valid TOML value; malformed spans reject with "
+                    "the document untouched)\n",
                     argv[3]);
             return 2;
         }
