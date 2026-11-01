@@ -159,3 +159,26 @@ TEST(Edit, SplicedOutputStillParses)
               TEPTRIS_OK);
     DocGuard g(doc);
 }
+
+TEST(Edit, DottedKeyUnderSection)
+{
+    /* the audit-9 find: a dotted key LINE continuing the open section
+     * was unfindable (ERR_STATE) */
+    std::string src = "[[items]]\na.b = 1\n\n[[items]]\nname = \"y\"\n";
+    EXPECT_EQ(edit_ok(src, "items.a.b", "2"),
+              "[[items]]\na.b = 2\n\n[[items]]\nname = \"y\"\n");
+    std::string src2 = "[deep.path]\nc.d = \"x\"\n";
+    EXPECT_EQ(edit_ok(src2, "deep.path.c.d", "\"y\""),
+              "[deep.path]\nc.d = \"y\"\n");
+}
+
+TEST(Edit, NoTrailingNewlineAndAotFirstMatch)
+{
+    /* the value may be the last bytes of the file */
+    EXPECT_EQ(edit_ok(std::string("a = 1\nb = 8080"), "b", "9090"),
+              "a = 1\nb = 9090");
+    /* two elements share the header: the FIRST match wins (pinned) */
+    std::string src = "[[items]]\nname = \"x\"\n\n[[items]]\nname = \"y\"\n";
+    EXPECT_EQ(edit_ok(src, "items.name", "\"z\""),
+              "[[items]]\nname = \"z\"\n\n[[items]]\nname = \"y\"\n");
+}
