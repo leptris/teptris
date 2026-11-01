@@ -325,6 +325,34 @@ static int edit_section_matches(const char *prefix, size_t prefix_len,
     return memcmp(sec, ps, prefix_len) == 0;
 }
 
+/* Raw-textual check: does the target keypath, after its trimmed
+ * section prefix, CONTINUE the open section? [items] + target
+ * "items.a.b" -> the line may write "a.b" or "b"; this yields "a.b".
+ * Canonical-textual only (quoting variants do not match), consistent
+ * with edit_section_matches. */
+static int edit_strip_section_prefix(const char *keypath, size_t klen,
+                                     const char *sec, size_t sec_len,
+                                     const char **rest, size_t *rest_len)
+{
+    while (klen > 0 && edit_is_ws(keypath[0])) {
+        keypath++;
+        klen--;
+    }
+    while (klen > 0 && edit_is_ws(keypath[klen - 1])) {
+        klen--;
+    }
+    if (sec_len == 0 || klen <= sec_len) {
+        return 0;
+    }
+    if (keypath[sec_len] != '.' ||
+        memcmp(keypath, sec, sec_len) != 0) {
+        return 0;
+    }
+    *rest = keypath + sec_len + 1;
+    *rest_len = klen - sec_len - 1;
+    return *rest_len > 0;
+}
+
 teptris_status teptris_edit_scalar(const char *src, size_t len,
                                    const char *keypath,
                                    const char *replacement,
@@ -395,6 +423,18 @@ teptris_status teptris_edit_scalar(const char *src, size_t len,
                     if (last_len > 0 &&
                         edit_section_matches(pfx, pfx_len, sec, sec_len)) {
                         after = edit_match_path(t, le, lastc, last_len);
+                    }
+                    if (after == NULL && sec_len > 0) {
+                        /* the line writes a dotted path that CONTINUES
+                         * the open section: "a.b = 1" under [items]
+                         * with target "items.a.b" */
+                        const char *rest;
+                        size_t rest_len;
+                        if (edit_strip_section_prefix(keypath, klen, sec,
+                                                      sec_len, &rest,
+                                                      &rest_len)) {
+                            after = edit_match_path(t, le, rest, rest_len);
+                        }
                     }
                 }
                 if (after != NULL) {
