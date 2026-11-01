@@ -147,11 +147,36 @@ regeneration rules in [canonical.md](test/golden/canonical.md)); CI
 enforces byte-stable re-emission of that file and of the whole emit
 surface (E6).
 
+### Format-preserving edit
+
+```c
+char *out = NULL; size_t out_len = 0;
+if (teptris_edit_scalar(src, len, "serve.port", "9090", &out, &out_len)
+    == TEPTRIS_OK) {
+    /* every byte of src survives except the one value's bytes */
+    free(out);
+}
+```
+
+`teptris_edit_scalar` rewrites exactly the value bytes of one
+`key = value` line: comments, blank lines, formatting and CRLF endings
+survive. Dotted paths address the key (a `[table]` prefix matches the
+open section; a dotted key line may continue the section); multiline
+strings and inline collections splice with parse-verified spans; the
+replacement is the value's TEXT, validated by the engine. Absent key
+→ `TEPTRIS_ERR_STATE`; malformed span or replacement →
+`TEPTRIS_ERR_ARG`. Every runtime exposes it (see the bindings).
+
 ## CLI
 
 ```
 teptris parse|to-json <file>   # typed-JSON tree (toml-test wire shape)
 teptris format <file>          # canonical TOML
 teptris validate <file>        # exit 1 with line:col on error
+teptris set <file> <key.path> <value>   # format-preserving edit, in place
 teptris version
 ```
+
+`set` exit codes: 0 edited, 1 key not found, 2 misuse (a malformed
+replacement or an unspliceable span rejects with the document left
+untouched).

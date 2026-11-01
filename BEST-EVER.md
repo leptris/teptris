@@ -38,18 +38,30 @@ not best.**
 
 ## The ledger — current honest standing
 
-Last refreshed: 2026-10-19 (engine v0.3.4 family, run 5).
+Last refreshed: 2026-11-01 (engine v0.3.17 family; the measured cells
+keep their original date + host — new capability cells carry theirs).
 
 | dimension | C engine | Ruby | Python | Rust | JS/TS |
 | --- | --- | --- | --- | --- | --- |
-| correctness | 714/714 + 711/711 toml-test | parity specs vs tomllib-shape | tomllib-shape parity | toml-test via engine | toml-test via engine |
-| differential vs references | **GAP** — oracle job unbuilt | **GAP** — vs tomlrb/tomllib pending | **GAP** — vs tomllib pending | **GAP** — vs toml crate pending | **GAP** — vs smol-toml pending |
-| speed: parse | **best** — 4.2–6.8× the best C/C++ competitor, every shape (367–541 MB/s, run 5) | **best** — 9/9, 19–184× tomlrb, 7–370× tomlib | **best** — 9/9, 16–26× tomllib, 1.5–7.3× rtoml | **best** — 9/9, 6.8–13.5× the toml crate; **serde derive path: 4.9×** (0.1.6, derive-vs-derive) | @iarna beaten everywhere (1.4–3.3×); **GAP** — smol-toml wins 6/9 (max 1.8×) |
-| speed: emit | **best** — 3.1–57× tomlplusplus, 3.4–430× toml11, every shape (264–768 MB/s, run 5) + the streaming writer API (v0.3.5) | **best** — 9/9 vs Tomlib.dump 6–10× (tomlrb has no serializer) | **GAP** — 4/9 vs rtoml on the 3.10-floor build (0.3.7.3, borrowed keys everywhere: datetime 1.8×, strings 1.6×, cargo 1.4×, mixed 1.0× won; flat shapes up to 1.3× behind — rtoml's PyO3 value extraction, structural; native-doc dumps_doc wins the roundtrip 9/9 at 3.0-10.1×) | **best** — 9/9, 2.9–5× the toml crate; serde to_string 3.9× | **GAP** — writer dumps (0.3.8): datetime_heavy flips to a win; smol keeps mega-flat shapes 1.4–1.7× (loads gap unchanged) |
-| memory safety | 4 fuzz targets, ASan/UBSan/TSan lanes, depth caps, stderr-silence test | inherits engine | inherits engine | inherits engine | inherits engine (wasm build warning-gated) |
-| ergonomics | stable C ABI, opaque handles | tomlib-shaped + Descriptor | tomllib-shaped + Descriptor | value model + Descriptor crate | ES module + .d.ts + Descriptor |
+| correctness | 712/712 toml-test (1.1 view, pin ff49d109); the 1.0 view is 700/9 — the 9 accepts are TOML 1.1-legalized constructs, documented in `scripts/toml-test-run.sh` | parity specs vs tomllib-shape | tomllib-shape parity | toml-test via engine | toml-test via engine |
+| differential vs references | **CLOSED** — the nightly differential lane (vs tomllib, `scripts/differential.py`) runs over the fuzz corpus; zero divergences (latest green run 2026-10-31) | rides the engine lane | rides the engine lane | rides the engine lane | rides the engine lane |
+| speed: parse | **best** — 4.2–6.8× the best C/C++ competitor, every shape (367–541 MB/s, run 5) | **best** — 9/9, 19–184× tomlrb, 7–370× tomlib | **best** — 9/9, 16–26× tomllib, 1.5–7.3× rtoml | **best** — 9/9, 6.8–13.5× the toml crate; serde derive path measured 2026-10-31: borrowed plan walk 1.31× ahead of derive (1.65 vs 2.17 ms), the borrowed AoT cell 1.76 ms | @iarna beaten everywhere (1.4–3.3×); **GAP** — smol-toml wins 6/9 (max 1.8×) |
+| speed: emit | **best** — 3.1–57× tomlplusplus, 3.4–430× toml11, every shape (264–768 MB/s, run 5) + the streaming writer API (v0.3.5) | **best** — 9/9 vs Tomlib.dump 6–10× (tomlrb has no serializer) | **GAP** — 4/9 vs rtoml on the 3.10-floor build (0.3.7.3, borrowed keys everywhere: datetime 1.8×, strings 1.6×, cargo 1.4×, mixed 1.0× won; flat shapes up to 1.3× behind — rtoml's PyO3 value extraction, structural; native-doc dumps_doc wins the roundtrip 9/9 at 3.0-10.1×) | **best** — 9/9, 2.9–5× the toml crate; serde to_string 3.9× | **GAP** — writer dumps (0.3.8): datetime_heavy flips to a win; smol keeps mega-flat shapes 1.4–1.7× (loads gap unchanged); AoT-element nested tables now dump canonically (v0.3.17 wave, byte-identical with py) |
+| memory safety | **5 fuzz harnesses** (parse, parse_batch, plan, dump, edit), ASan/UBSan/TSan lanes, depth caps, stderr-silence test; the nightly found + killed a real one-byte overread in v0.3.14 (datetime HH:MM at EOF, heap-exact regression) | inherits engine | inherits engine | inherits engine | inherits engine (wasm build warning-gated) |
+| ergonomics | stable C ABI, opaque handles, **format-preserving edit (v3)**: `teptris_edit_scalar` rewrites one value's bytes; comments/formatting/CRLF survive; multiline + inline targets splice parse-verified | tomlib-shaped + Descriptor + `TOML.edit` | tomllib-shaped + Descriptor + `teptris.edit` | value model + Descriptor crate + `edit_scalar` + borrowed AoT reads at full-schema parity | ES module + .d.ts + Descriptor + `edit()`; dumps byte-canonical with py |
 | packaging | pkg-config/cmake, 12-lane CI | fat gems, every platform, OIDC | 60 wheels + sdist, PGO | crates.io TP | npm TP, wasm, provenance |
-| truthfulness | v0.3.4 anchor | 0.3.4.1 = engine 0.3.4 | 0.3.4.1 = engine 0.3.4 | 0.1.5 (3-part law) | 0.3.7 (3-part law) |
+| truthfulness | v0.3.17 anchor | 0.3.17.0 = engine 0.3.17 | 0.3.17.0 = engine 0.3.17 | 0.3.17 = engine 0.3.17 (exact match) | 0.3.21 (compressed {major.minor}.{iteration} law) |
+
+### The format-preserving edit dimension (2026-11-01)
+
+The editor is an ENGINE capability, not per-language glue: one C
+implementation (fuzz-harnessed, 126 unit cases) exposed byte-identically
+on all four runtimes. Cross-runtime parity battery — 8 cases (plain,
+section-scoped, dotted line, quoted key, multiline target, inline
+target, CRLF source, AoT dotted-under-section) run against the
+REGISTRY artifacts of all four runtimes: **8/8 × 4 runtimes, 2026-11-01**.
+This is the inline-preservation lead: competitors reshape the whole
+document on write; teptris edits one value and touches nothing else.
 
 ## The plan to close every gap
 
