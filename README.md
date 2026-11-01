@@ -81,7 +81,7 @@ inside and silence on stdout/stderr.
 
 | check | standing |
 | --- | --- |
-| unit + corpus suites | 124/124 green (scalars, datetimes, table define-semantics, errors with line:col + byte spans, emit goldens incl. the canonical-form reference artifact, roundtrip property) |
+| unit + corpus suites | 126/126 green (scalars, datetimes, table define-semantics, errors with line:col + byte spans, emit goldens incl. the canonical-form reference artifact, roundtrip property) |
 | roundtrip property | parse → emit → parse tree equality + emit byte-stability over the corpus |
 | ASAN | full suite green + fuzz smoke (truncations, mutations, random bytes) clean |
 | parse matrix vs C/C++ references | teptris 367–541 MB/s, fastest on every shape vs tomlc99, tomlc17, cpptoml, toml11, tomlplusplus (4.2–6.8× the best competitor, run 5, 2026-10-19) — `benchmarks/LEDGER.md` |
