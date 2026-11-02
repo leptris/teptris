@@ -821,19 +821,24 @@ TEPTRIS_API teptris_status teptris_schema_validate_doc(
     val(&vc, sch->root, rv);
 
     teptris_status st = TEPTRIS_OK;
-    size_t out_n = vc.n > 0 ? vc.n : 2;
+    /* the envelope is always one JSON array: wrap the comma-joined
+     * error objects (or emit the empty array) */
+    size_t body_n = vc.n;
+    size_t out_n = body_n > 0 ? body_n + 2 : 2;
     char *out = malloc(out_n + 1);
     if (out == NULL) {
         st = TEPTRIS_ERR_ALLOC;
     } else {
-        if (vc.n > 0) {
-            memcpy(out, vc.buf, vc.n);
-            out[vc.n] = '\0';
+        if (body_n > 0) {
+            out[0] = '[';
+            memcpy(out + 1, vc.buf, body_n);
+            out[body_n + 1] = ']';
+            out[out_n] = '\0';
         } else {
             memcpy(out, "[]", 3);
         }
         *buf = out;
-        *out_len = vc.n > 0 ? vc.n : 2;
+        *out_len = out_n;
     }
     if (vc.buf != NULL) free(vc.buf);
     teptris_arena_destroy(&scratch);
