@@ -661,6 +661,9 @@ TEST(SchemaEnvelope, ErrorListIsBoundedAndShaped)
         "\"a\":{\"type\":\"integer\"},\"b\":{\"type\":\"integer\"}}}");
     ASSERT_NE(s.sch, nullptr);
     std::string errs = validate_str(s.sch, "a = \"x\"\nb = \"y\"\n");
+    /* the envelope is one JSON array */
+    ASSERT_EQ(errs.front(), '[');
+    ASSERT_EQ(errs.back(), ']');
     /* every element carries exactly the three keys */
     size_t count = 0;
     for (size_t i = 0; i + 1 < errs.size(); i++) {
