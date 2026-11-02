@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "teptris/schema.h"
 #include "teptris/teptris.h"
 
 static void usage(FILE *out, const char *prog)
@@ -16,6 +17,9 @@ static void usage(FILE *out, const char *prog)
             "                  non-finite floats become null)\n"
             "  format          parse and re-emit canonical TOML\n"
             "  validate        exit 0 when valid, 1 with line:col otherwise\n"
+            "    --schema F    also validate against the JSON Schema in F\n"
+            "                  (exit 0 valid, 1 with the error list, 2 for\n"
+            "                  usage or an unusable schema)\n"
             "  set <file> <key.path> <value>\n"
             "                  format-preserving in-place edit: rewrite\n"
             "                  exactly that value's bytes (single-line\n"
@@ -135,15 +139,22 @@ int main(int argc, char **argv)
 
     int natural = 0;
     const char *path = "-";
+    const char *schema_path = NULL;
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--natural") == 0) {
             natural = 1;
+        } else if (strcmp(argv[i], "--schema") == 0 && i + 1 < argc) {
+            schema_path = argv[++i];
         } else {
             path = argv[i];
         }
     }
     if (natural && strcmp(cmd, "to-json") != 0) {
         fprintf(stderr, "teptris: --natural applies to to-json only\n");
+        return 2;
+    }
+    if (schema_path != NULL && strcmp(cmd, "validate") != 0) {
+        fprintf(stderr, "teptris: --schema applies to validate only\n");
         return 2;
     }
     size_t len = 0;
@@ -166,7 +177,47 @@ int main(int argc, char **argv)
     }
 
     int rc = 0;
-    if (strcmp(cmd, "parse") == 0 || strcmp(cmd, "to-json") == 0) {
+    if (schema_path != NULL) {
+        size_t slen = 0;
+        char *stext = read_all(schema_path, &slen);
+        if (stext == NULL) {
+            fprintf(stderr, "teptris: cannot read %s\n", schema_path);
+            teptris_document_free(doc);
+            free(data);
+            return 2;
+        }
+        teptris_schema *sch = NULL;
+        char *diag = NULL;
+        size_t dlen = 0;
+        teptris_status sst = teptris_schema_compile(stext, slen, &sch,
+                                                    &diag, &dlen);
+        free(stext);
+        if (sst != TEPTRIS_OK) {
+            fprintf(stderr, "teptris: bad schema %s: %.*s\n", schema_path,
+                    diag != NULL ? (int)dlen : 6,
+                    diag != NULL ? diag : "(null)");
+            teptris_diag_free(diag);
+            teptris_document_free(doc);
+            free(data);
+            return 2;
+        }
+        char *errs = NULL;
+        size_t elen = 0;
+        teptris_status vst = teptris_schema_validate_doc(sch, doc, &errs,
+                                                         &elen);
+        teptris_schema_free(sch);
+        if (vst != TEPTRIS_OK) {
+            fprintf(stderr, "teptris: validation failed (status %d)\n",
+                    (int)vst);
+            rc = 2;
+        } else if (elen > 2) {
+            /* "[]" means no errors; anything else is the error list */
+            fwrite(errs, 1, elen, stderr);
+            fputc('\n', stderr);
+            rc = 1;
+        }
+        free(errs);
+    } else if (strcmp(cmd, "parse") == 0 || strcmp(cmd, "to-json") == 0) {
         char *buf = NULL;
         size_t blen = 0;
         teptris_status est = natural

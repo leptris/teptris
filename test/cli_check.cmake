@@ -61,6 +61,11 @@ elseif(CASE STREQUAL "set_preserves_formatting")
         message(FATAL_ERROR "set lost formatting: ${GOT}")
     endif()
 elseif(CASE STREQUAL "set_string_and_missing")
+    # write the same base file preserves_formatting uses: ctest runs
+    # cases in parallel, so no case may consume another's state
+    file(WRITE "${CMAKE_BINARY_DIR}/cli_set.toml"
+         "# conf\nversion = \"1.2.3\"  # keep\n[serve]\nport = 8080\n"
+         "inline = {a = 1}\n")
     execute_process(COMMAND "${CLI}" set
                             "${CMAKE_BINARY_DIR}/cli_set.toml"
                             version "\"2.0.0\""
@@ -89,6 +94,44 @@ elseif(CASE STREQUAL "set_string_and_missing")
     file(READ "${CMAKE_BINARY_DIR}/cli_set.toml" GOT)
     if(NOT GOT MATCHES "inline = \\{b = 2\\}")
         message(FATAL_ERROR "set inline lost: ${GOT}")
+    endif()
+elseif(CASE STREQUAL "validate_schema_ok")
+    file(WRITE "${CMAKE_BINARY_DIR}/cli_schema_ok.json"
+         "{\"properties\":{\"pi\":{\"type\":\"number\"}},\"required\":[\"pi\"]}")
+    execute_process(COMMAND "${CLI}" validate --schema
+                            "${CMAKE_BINARY_DIR}/cli_schema_ok.json"
+                            "${CMAKE_BINARY_DIR}/cli_input.toml"
+                    OUTPUT_VARIABLE OUT ERROR_VARIABLE ERR RESULT_VARIABLE RC)
+    if(NOT RC EQUAL 0)
+        message(FATAL_ERROR "validate schema ok: rc=${RC} err=${ERR}")
+    endif()
+    if(NOT OUT STREQUAL "")
+        message(FATAL_ERROR "validate schema ok must be silent: ${OUT}")
+    endif()
+elseif(CASE STREQUAL "validate_schema_invalid")
+    file(WRITE "${CMAKE_BINARY_DIR}/cli_schema_badtype.json"
+         "{\"properties\":{\"pi\":{\"type\":\"integer\"}}}")
+    execute_process(COMMAND "${CLI}" validate --schema
+                            "${CMAKE_BINARY_DIR}/cli_schema_badtype.json"
+                            "${CMAKE_BINARY_DIR}/cli_input.toml"
+                    OUTPUT_VARIABLE OUT ERROR_VARIABLE ERR RESULT_VARIABLE RC)
+    if(NOT RC EQUAL 1)
+        message(FATAL_ERROR "validate schema invalid: rc=${RC}")
+    endif()
+    if(NOT ERR MATCHES "\"path\":\"pi\"")
+        message(FATAL_ERROR "invalid must list the error: ${ERR}")
+    endif()
+elseif(CASE STREQUAL "validate_schema_bad")
+    file(WRITE "${CMAKE_BINARY_DIR}/cli_schema_broken.json" "{\"nope\":")
+    execute_process(COMMAND "${CLI}" validate --schema
+                            "${CMAKE_BINARY_DIR}/cli_schema_broken.json"
+                            "${CMAKE_BINARY_DIR}/cli_input.toml"
+                    OUTPUT_VARIABLE OUT ERROR_VARIABLE ERR RESULT_VARIABLE RC)
+    if(NOT RC EQUAL 2)
+        message(FATAL_ERROR "bad schema must rc=2: rc=${RC}")
+    endif()
+    if(NOT ERR MATCHES "bad schema")
+        message(FATAL_ERROR "bad schema must explain: ${ERR}")
     endif()
 else()
     message(FATAL_ERROR "unknown CASE ${CASE}")

@@ -89,3 +89,19 @@ Per surface (the native naming, the shared contract):
 
 Cross-runtime parity battery: 8 cases × 4 runtimes from the registry
 artifacts, byte-exact — see BEST-EVER's edit-dimension section.
+
+## Schema validation — compile once, validate many (2026-11-02)
+
+`teptris/schema.h`: `teptris_schema_compile(json, len, &sch, &diag,
+&diag_len)` compiles the 2020-12 practical subset into an immutable,
+arena-backed handle; unsupported constructs are rejected at compile
+with one malloc'd `{"error": ...}` diag (freed by
+`teptris_diag_free`). `teptris_schema_validate` /
+`teptris_schema_validate_doc` walk a document once and hand back one
+malloc'd JSON array of `{"path", "schemaPath", "message"}` objects
+(`"[]"` = valid; freed with `free()`). A document that does not parse
+reports `TEPTRIS_ERR_SYNTAX` with no buffer. The four TOML/JSON
+policies (null, integer identity, datetimes, non-finite floats) are
+contract, not convention — [SCHEMAS.md](SCHEMAS.md) is the authority.
+Bindings surface it as compiled-schema handles (C/RS/JS/Ruby/Py), with
+the error list decoded into each runtime's native shape.

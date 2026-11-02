@@ -81,7 +81,7 @@ inside and silence on stdout/stderr.
 
 | check | standing |
 | --- | --- |
-| unit + corpus suites | 126/126 green (scalars, datetimes, table define-semantics, errors with line:col + byte spans, emit goldens incl. the canonical-form reference artifact, roundtrip property) |
+| unit + corpus suites | 174/174 green (scalars, datetimes, table define-semantics, errors with line:col + byte spans, emit goldens incl. the canonical-form reference artifact, roundtrip property, schema validation: the 2020-12 practical subset + the four TOML/JSON policies + vendored cargo-like/pyproject-like manifests — [SCHEMAS.md](SCHEMAS.md)) |
 | roundtrip property | parse → emit → parse tree equality + emit byte-stability over the corpus |
 | ASAN | full suite green + fuzz smoke (truncations, mutations, random bytes) clean |
 | parse matrix vs C/C++ references | teptris 367–541 MB/s, fastest on every shape vs tomlc99, tomlc17, cpptoml, toml11, tomlplusplus (4.2–6.8× the best competitor, run 5, 2026-10-19) — `benchmarks/LEDGER.md` |
@@ -116,6 +116,20 @@ generated corpus (budget split evenly; `workflow_dispatch` takes a
 Found so far: two NULL-source `memcpy` UBs in dom clone growth
 (v0.3.3), plus the harness's own OOB reads. Crash artifacts are
 uploaded by the lane on failure.
+
+## Schema validation
+
+Validate TOML documents against JSON Schemas — the 2020-12 practical
+subset, compiled once and reused across documents, with four
+documented policies for the TOML/JSON incompatibilities (null, integer
+identity, datetimes, non-finite floats). Unsupported constructs are
+rejected at compile, never silently ignored; errors come back as
+`{"path", "schemaPath", "message"}` lists. The full contract, keyword
+table and runtime surfaces live in [`SCHEMAS.md`](SCHEMAS.md).
+
+```sh
+teptris validate --schema schema.json app.toml   # 0 valid, 1 invalid, 2 bad schema
+```
 
 ## Descriptor plan ABI
 
@@ -173,6 +187,7 @@ replacement is the value's TEXT, validated by the engine. Absent key
 teptris parse|to-json <file>   # typed-JSON tree (toml-test wire shape)
 teptris format <file>          # canonical TOML
 teptris validate <file>        # exit 1 with line:col on error
+teptris validate --schema s.json <file>  # + JSON Schema (SCHEMAS.md)
 teptris set <file> <key.path> <value>   # format-preserving edit, in place
 teptris version
 ```
