@@ -187,7 +187,9 @@ TEST(SchemaCompile, RejectsDegenerateNumerics)
               std::string::npos);
     EXPECT_NE(compile_diag({"{\"multipleOf\":-2}"}).find("error"),
               std::string::npos);
-    EXPECT_EQ(compile_ok("{\"properties\":{\"k\":{\"multipleOf\":0.5}}}") != nullptr, true);
+    SchemaDoc half;
+    half.sch = compile_ok("{\"properties\":{\"k\":{\"multipleOf\":0.5}}}");
+    ASSERT_NE(half.sch, nullptr);
 }
 
 TEST(SchemaCompile, UnknownKeywordsAreExtensions)
