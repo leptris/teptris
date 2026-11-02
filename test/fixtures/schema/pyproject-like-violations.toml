@@ -1,0 +1,10 @@
+[project]
+name = "demo"
+version = "0.1.0"
+
+[tool.demo]
+mode = "speed"
+retries = 5.5
+ratio = "half"
+tags = "a"
+since = "soon"

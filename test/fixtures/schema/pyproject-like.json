@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "pyproject-like manifest",
+  "type": "object",
+  "required": ["project"],
+  "properties": {
+    "project": {
+      "type": "object",
+      "required": ["name", "version"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]*$" },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$" },
+        "requires-python": { "type": "string" },
+        "authors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name"],
+            "properties": {
+              "name": { "type": "string" },
+              "email": { "type": "string", "pattern": "^[^@]+@[^@]+$" }
+            }
+          }
+        },
+        "urls": {
+          "type": "object",
+          "additionalProperties": { "type": "string", "format": "uri" }
+        }
+      }
+    },
+    "tool": {
+      "type": "object",
+      "properties": {
+        "demo": {
+          "type": "object",
+          "required": ["mode"],
+          "properties": {
+            "mode": { "enum": ["fast", "safe"] },
+            "retries": { "type": "integer", "minimum": 0 },
+            "ratio": { "type": "number", "minimum": 0, "maximum": 1 },
+            "tags": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+            "since": { "type": "string", "format": "date-time" }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  }
+}

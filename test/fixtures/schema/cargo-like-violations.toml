@@ -1,0 +1,10 @@
+[package]
+name = "9bad"
+version = "one"
+edition = "2035"
+
+[dependencies]
+serde = { features = ["derive"] }
+
+[profile.release]
+opt-level = "fast"

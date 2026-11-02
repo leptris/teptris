@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "cargo-like manifest",
+  "type": "object",
+  "required": ["package"],
+  "properties": {
+    "package": {
+      "type": "object",
+      "required": ["name", "version", "edition"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+        "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(-[a-z0-9.]+)?$" },
+        "edition": { "enum": ["2015", "2018", "2021", "2024"] },
+        "publish": { "type": "boolean" },
+        "repository": { "type": "string", "format": "uri" }
+      },
+      "additionalProperties": false
+    },
+    "dependencies": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-zA-Z][a-zA-Z0-9_-]*$" },
+      "additionalProperties": {
+        "anyOf": [
+          { "type": "string" },
+          {
+            "type": "object",
+            "properties": {
+              "version": { "type": "string" },
+              "features": { "type": "array", "items": { "type": "string" }, "uniqueItems": true },
+              "optional": { "type": "boolean" },
+              "default-features": { "type": "boolean" }
+            },
+            "required": ["version"]
+          }
+        ]
+      }
+    },
+    "profile": {
+      "type": "object",
+      "properties": {
+        "release": {
+          "type": "object",
+          "properties": {
+            "opt-level": { "type": "integer", "minimum": 0, "maximum": 3 },
+            "lto": { "type": "boolean" },
+            "strip": { "type": "boolean" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

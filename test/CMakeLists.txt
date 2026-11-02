@@ -29,6 +29,7 @@ add_executable(test_unit
     unit/test_builder.cpp
     unit/test_flatten.cpp
     unit/test_plan.cpp
+    unit/test_schema.cpp
     unit/test_parse_batch.cpp
 )
 target_link_libraries(test_unit PRIVATE teptris GTest::gtest_main)
@@ -42,7 +43,7 @@ gtest_discover_tests(test_unit DISCOVERY_TIMEOUT 60)
 # these ctest cases assert exit codes and output shapes without a
 # shell (cmake -P script mode runs on every platform).
 if(TARGET teptris_cli)
-    foreach(case version to_json_natural to_json_conformance natural_rejects_on_format set_preserves_formatting set_string_and_missing)
+    foreach(case version to_json_natural to_json_conformance natural_rejects_on_format validate_schema_ok validate_schema_invalid validate_schema_bad set_preserves_formatting set_string_and_missing)
         add_test(NAME cli_${case}
                  COMMAND ${CMAKE_COMMAND}
                          -DCLI=$<TARGET_FILE:teptris_cli>

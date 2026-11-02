@@ -78,6 +78,14 @@ jobs:
             -Isrc/include -Isrc -o fuzz_edit \
             test/fuzz/fuzz_edit.c \
             src/teptris/*.c src/teptris/*/*.c src/teptris/*/*/*.c
+          # schema harness: the input is sliced into a JSON Schema and
+          # a TOML document - the compile/validate buffer contracts,
+          # the diag handback, the recursive-$ref memo and the regex
+          # subset, all under the same sanitizers
+          clang -fsanitize=fuzzer,address,undefined -g -O1 -std=c99 \
+            -Isrc/include -Isrc -o fuzz_schema \
+            test/fuzz/fuzz_schema.c \
+            src/teptris/*.c src/teptris/*/*.c src/teptris/*/*/*.c
 
       - name: Fuzz
         run: |
@@ -88,7 +96,7 @@ jobs:
             echo "FUZZ_EXTENDED=1" >> "$GITHUB_ENV"
           fi
           SECS=$((MINS * 60))
-          SLICE=$((SECS / 5))
+          SLICE=$((SECS / 6))
           ./fuzz_parse corpus -max_total_time="$SLICE" -timeout=5 \
             -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
           ./fuzz_plan corpus -max_total_time="$SLICE" -timeout=5 \
@@ -98,6 +106,8 @@ jobs:
           ./fuzz_parse_batch corpus -max_total_time="$SLICE" -timeout=5 \
             -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
           ./fuzz_edit corpus -max_total_time="$SLICE" -timeout=5 \
+            -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
+          ./fuzz_schema corpus -max_total_time="$SLICE" -timeout=5 \
             -rss_limit_mb=2560 -artifact_prefix="$PWD/crashes/"
 
       - name: Differential over the mutated corpus

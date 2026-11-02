@@ -19,6 +19,10 @@ set(TEPTRIS_SOURCES
     teptris/emit/emitter.c
     teptris/emit/writer.c
     teptris/edit/edit.c
+    teptris/schema/json_read.c
+    teptris/schema/regex.c
+    teptris/schema/schema.c
+    teptris/schema/validate.c
     teptris/api.c
 )
 
