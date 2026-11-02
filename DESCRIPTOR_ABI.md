@@ -101,3 +101,24 @@ path").
 - Typed column tags on the C plan row — not required for TOML; reopen
   only if a consumer needs reject-on-type-mismatch without reading
   the value kind after the walk.
+
+## Borrowed reads (2026-11-02)
+
+`teptris_plan_walk` returns a result VIEW; the materializing consumer
+(assembles host values) is one of two contracts. The borrowed contract
+drains the view through the row accessors directly — zero
+materialization: `teptris_plan_result_kind_at`, `..._string_at`,
+`..._integer_at`, `..._float_at`, `..._boolean_at`,
+`..._array_len_at`, `..._array_string_at`, and for entered tables and
+array-of-tables elements `teptris_plan_result_row_view` /
+`teptris_plan_result_array_entry_at` (each handback freed with
+`teptris_plan_result_view_free`). String accessors return views into
+the result; they live until the result is freed.
+
+The reference consumer is teptris-rs's `walk_borrowed`:
+`PlanResult`/`PlanTable` typed getters (`get_str`/`get_int`/`get_float`
+/`get_bool`, `array_len`/`array_str`, `table(name)`, `aot_len(name)`,
+`aot_table(name, i)`) over the view — full-schema parity with the
+owned walk, no intermediate `Value` tree (bench: the borrowed walk +
+every AoT element name at 1.76 ms vs 2.17 ms serde derive on the
+shared corpus, host-dated 2026-10-31).

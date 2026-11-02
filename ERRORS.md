@@ -44,3 +44,22 @@ a.b = 1
 a.b = 2
 ```
 → `2:8: error: duplicate key 'b' in table 'a'`
+
+## The edit error contract (2026-11-02)
+
+`teptris_edit_scalar` has exactly two failure statuses, and every
+surface maps them natively:
+
+- `TEPTRIS_ERR_STATE` — the key is absent (or no line matches the
+  target under the open section). C: status return; Rust:
+  `Error(ERR_STATE)`; JS: thrown `Error`; Ruby: `Teptris::Error`;
+  Python: `ValueError` ("edit: key not found").
+- `TEPTRIS_ERR_ARG` — the replacement is not one valid TOML value, or
+  a string/inline span mis-scanned (the v2 splice is parse-verified:
+  a mis-scan rejects with the document untouched rather than
+  corrupting). Same per-surface mapping, message
+  "malformed key path or replacement" (py) / "edit failed" (js shim).
+
+The CLI maps them to exit codes: 1 = absent key, 2 = misuse (see the
+README's `set` section). The editor never writes to stdout/stderr and
+never returns a buffer it did not allocate.
