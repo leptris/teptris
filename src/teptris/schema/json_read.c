@@ -248,8 +248,7 @@ static jv *jvalue(jctx *c);
 static jv *jobject(jctx *c) {
     c->pos++; /* '{' */
     jv *v = teptris_arena_alloc(c->a, sizeof(jv));
-    memset(v, 0, sizeof(jv));
-    v->kind = JV_OBJECT;
+    *v = (jv){ .kind = JV_OBJECT };
     size_t cap = 8;
     v->members = teptris_arena_alloc(c->a, cap * sizeof(*v->members));
     jskip_ws(c);
@@ -300,8 +299,7 @@ static jv *jobject(jctx *c) {
 static jv *jarray(jctx *c) {
     c->pos++; /* '[' */
     jv *v = teptris_arena_alloc(c->a, sizeof(jv));
-    memset(v, 0, sizeof(jv));
-    v->kind = JV_ARRAY;
+    *v = (jv){ .kind = JV_ARRAY };
     size_t cap = 8;
     v->items = teptris_arena_alloc(c->a, cap * sizeof(*v->items));
     jskip_ws(c);
@@ -356,29 +354,22 @@ static jv *jvalue(jctx *c) {
         const char *s = jstring(c, &slen);
         if (s != NULL) {
             v = teptris_arena_alloc(c->a, sizeof(jv));
-            memset(v, 0, sizeof(jv));
-            v->kind = JV_STRING;
-            v->str = s;
-            v->str_len = slen;
+            *v = (jv){ .kind = JV_STRING, .str = s, .str_len = slen };
         }
     } else if (c->len - c->pos >= 4 &&
                strncmp(c->src + c->pos, "true", 4) == 0) {
         v = teptris_arena_alloc(c->a, sizeof(jv));
-        memset(v, 0, sizeof(jv));
-        v->kind = JV_BOOL;
-        v->b = true;
+        *v = (jv){ .kind = JV_BOOL, .b = true };
         c->pos += 4;
     } else if (c->len - c->pos >= 5 &&
                strncmp(c->src + c->pos, "false", 5) == 0) {
         v = teptris_arena_alloc(c->a, sizeof(jv));
-        memset(v, 0, sizeof(jv));
-        v->kind = JV_BOOL;
+        *v = (jv){ .kind = JV_BOOL };
         c->pos += 5;
     } else if (c->len - c->pos >= 4 &&
                strncmp(c->src + c->pos, "null", 4) == 0) {
         v = teptris_arena_alloc(c->a, sizeof(jv));
-        memset(v, 0, sizeof(jv));
-        v->kind = JV_NULL;
+        *v = (jv){ .kind = JV_NULL };
         c->pos += 4;
     } else if (ch == '-' || (ch >= '0' && ch <= '9')) {
         size_t start = c->pos;
@@ -405,8 +396,7 @@ static jv *jvalue(jctx *c) {
         memcpy(tmp, c->src + start, tlen);
         tmp[tlen] = '\0';
         v = teptris_arena_alloc(c->a, sizeof(jv));
-        memset(v, 0, sizeof(jv));
-        v->num = strtod(tmp, NULL);
+        *v = (jv){ .num = strtod(tmp, NULL) };
         if (integral) {
             errno = 0;
             char *end = NULL;
