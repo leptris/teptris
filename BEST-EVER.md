@@ -38,7 +38,7 @@ not best.**
 
 ## The ledger — current honest standing
 
-Last refreshed: 2026-11-02 (engine v0.3.18 family; the measured cells
+Last refreshed: 2026-11-02 (engine v0.3.19 family; the measured cells
 keep their original date + host — new capability cells carry theirs).
 
 | dimension | C engine | Ruby | Python | Rust | JS/TS |
