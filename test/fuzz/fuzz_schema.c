@@ -38,8 +38,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         if (sch != NULL) return 0; /* contract: no schema on failure */
         /* diag, when present, is one malloc'd NUL-terminated buffer */
         if (diag != NULL) {
-            if (diag_len != strlen(diag)) return 0;
+            int shape_ok = diag_len == strlen(diag);
             teptris_diag_free(diag);
+            if (!shape_ok) return 0;
         }
         return 0;
     }
@@ -50,11 +51,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     size_t blen = 0;
     st = teptris_schema_validate(sch, doc_src, doc_len, &buf, &blen);
     if (st == TEPTRIS_OK) {
-        if (buf == NULL || blen < 2) return 0;
-        /* the envelope is a JSON array */
-        if (buf[0] != '[' || buf[blen - 1] != ']') return 0;
-        if (strlen(buf) != blen) return 0;
+        int shape_ok = buf != NULL && blen >= 2 && buf[0] == '[' &&
+                       buf[blen - 1] == ']' && strlen(buf) == blen;
         free(buf);
+        if (!shape_ok) return 0;
     } else {
         /* any other status hands back nothing (syntax is the only
          * expected non-OK: the doc side is arbitrary bytes) */
@@ -71,10 +71,16 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
             char *dbuf = NULL;
             size_t dlen = 0;
             st = teptris_schema_validate_doc(sch, doc, &dbuf, &dlen);
+            int shape_ok = 1;
             if (st == TEPTRIS_OK) {
-                if (dbuf == NULL || dlen < 2) return 0;
+                shape_ok = dbuf != NULL && dlen >= 2;
                 free(dbuf);
-            } else if (dbuf != NULL) {
+            } else {
+                shape_ok = dbuf == NULL;
+            }
+            if (!shape_ok) {
+                teptris_document_free(doc);
+                teptris_schema_free(sch);
                 return 0;
             }
         }
