@@ -73,8 +73,7 @@ static void pfail(pctx *c, const char *msg) {
 
 static ra *rn(pctx *c, int kind) {
     ra *r = teptris_arena_alloc(c->a, sizeof(ra));
-    memset(r, 0, sizeof(ra));
-    r->kind = kind;
+    *r = (ra){ .kind = kind };
     return r;
 }
 

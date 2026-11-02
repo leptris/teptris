@@ -626,8 +626,7 @@ static sch_svalue *node_to_sv(teptris_arena *scratch, const teptris_node *node);
 
 static sch_svalue *sv_new(teptris_arena *a, int kind) {
     sch_svalue *v = teptris_arena_alloc(a, sizeof(sch_svalue));
-    memset(v, 0, sizeof(*v));
-    v->kind = kind;
+    *v = (sch_svalue){ .kind = kind };
     return v;
 }
 
