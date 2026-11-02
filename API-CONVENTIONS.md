@@ -58,3 +58,34 @@ is that documentation; the error-message half lives in
   else aligns to: opaque handles, `line:col` + byte-span errors,
   insertion-ordered tables, the builder/writer pair. Conventions for
   C TOML do not exist to diverge from.
+
+## The format-preserving edit — one contract, four native surfaces (2026-11-02)
+
+The editor is an engine capability (`teptris_edit_scalar`): rewrite
+exactly the value bytes of one `key = value` line; every other byte of
+the source survives (comments, blank lines, formatting, CRLF endings).
+Dotted paths address the key — a `[table]` prefix matches the open
+section, a dotted key line may continue it; multiline strings and
+inline collections splice with parse-verified spans; a repeated
+`[[header]]` edits the FIRST match. The replacement is the value's
+TEXT, validated by the engine by parsing `k = <replacement>`.
+
+Per surface (the native naming, the shared contract):
+
+- **C**: `teptris_edit_scalar(src, len, keypath, replacement, &buf,
+  &out_len)` — `TEPTRIS_ERR_STATE` on an absent key, `TEPTRIS_ERR_ARG`
+  on a malformed span or replacement; `*buf` malloc'd, caller frees.
+- **Rust**: `teptris::edit_scalar(&str, &str, &str) ->
+  Result<String, Error>` — `Error(ERR_STATE)` / `Error(ERR_ARG)`;
+  interior NULs in keypath/replacement are rejected (the engine
+  strlen's them).
+- **JS**: `edit(source, keyPath, replacement) -> string` — throws
+  `Error` (the shim carries the engine status); typed in `index.d.ts`.
+- **Ruby**: `Teptris::TOML.edit(source, key_path, replacement) ->
+  String` — raises `Teptris::Error`.
+- **Python**: `teptris.edit(source, key_path, replacement) -> str` —
+  raises `ValueError` (tomllib-shape: decode failures are ValueError
+  subclasses there too).
+
+Cross-runtime parity battery: 8 cases × 4 runtimes from the registry
+artifacts, byte-exact — see BEST-EVER's edit-dimension section.

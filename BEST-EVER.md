@@ -38,7 +38,7 @@ not best.**
 
 ## The ledger — current honest standing
 
-Last refreshed: 2026-11-01 (engine v0.3.17 family; the measured cells
+Last refreshed: 2026-11-02 (engine v0.3.18 family; the measured cells
 keep their original date + host — new capability cells carry theirs).
 
 | dimension | C engine | Ruby | Python | Rust | JS/TS |
@@ -50,7 +50,7 @@ keep their original date + host — new capability cells carry theirs).
 | memory safety | **5 fuzz harnesses** (parse, parse_batch, plan, dump, edit), ASan/UBSan/TSan lanes, depth caps, stderr-silence test; the nightly found + killed a real one-byte overread in v0.3.14 (datetime HH:MM at EOF, heap-exact regression) | inherits engine | inherits engine | inherits engine | inherits engine (wasm build warning-gated) |
 | ergonomics | stable C ABI, opaque handles, **format-preserving edit (v3)**: `teptris_edit_scalar` rewrites one value's bytes; comments/formatting/CRLF survive; multiline + inline targets splice parse-verified | tomlib-shaped + Descriptor + `TOML.edit` | tomllib-shaped + Descriptor + `teptris.edit` | value model + Descriptor crate + `edit_scalar` + borrowed AoT reads at full-schema parity | ES module + .d.ts + Descriptor + `edit()`; dumps byte-canonical with py |
 | packaging | pkg-config/cmake, 12-lane CI | fat gems, every platform, OIDC | 60 wheels + sdist, PGO | crates.io TP | npm TP, wasm, provenance |
-| truthfulness | v0.3.17 anchor | 0.3.17.0 = engine 0.3.17 | 0.3.17.0 = engine 0.3.17 | 0.3.17 = engine 0.3.17 (exact match) | 0.3.21 (compressed {major.minor}.{iteration} law) |
+| truthfulness | v0.3.18 anchor | 0.3.18.0 = engine 0.3.18 | 0.3.18.0 = engine 0.3.18 | 0.3.18 = engine 0.3.18 (exact match) | 0.3.25 (compressed {major.minor}.{iteration} law — the iteration moves without the engine when a release is binding-only) |
 
 ### The format-preserving edit dimension (2026-11-01)
 
