@@ -96,8 +96,8 @@ if(TEPTRIS_PROFILE_TRAIN)
     endforeach()
 endif()
 
-# the schema layer's multipleOf fallback uses C99 long-double math,
-# which lives in libm on Linux (the CRT carries it elsewhere)
+# the schema layer includes C99 math headers; libm is the explicit
+# link on Linux (the CRT carries it elsewhere)
 if(UNIX)
     foreach(tgt teptris teptris_shared)
         if(TARGET ${tgt})
