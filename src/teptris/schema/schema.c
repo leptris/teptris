@@ -28,17 +28,75 @@ static sch_node *sch_node_new(sctx *c) {
 
 /* ------------------------------------------------------------- memo -- */
 
+/* pointer-keyed open addressing (FNV-1a over the pointer bytes); the
+ * slot holds the entry index + 1, 0 = empty. Compile is O(n), not
+ * O(n^2): memo and node-base lookups are per-node on large schemas. */
+static uint32_t ptr_hash(const void *p) {
+    uint64_t x = (uint64_t)(uintptr_t)p;
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < sizeof x; i++) {
+        h ^= (uint32_t)(x & 0xff);
+        h *= 16777619u;
+        x >>= 8;
+    }
+    return h;
+}
+
+static uint32_t *hash_build(sctx *c, const void **keys, size_t n,
+                            size_t *cap_out) {
+    size_t ncap = 64;
+    while (ncap * 7 / 10 < n + 1) ncap *= 2;
+    uint32_t *nt = teptris_arena_alloc(c->a, ncap * sizeof(uint32_t));
+    memset(nt, 0, ncap * sizeof(uint32_t));
+    uint32_t mask = (uint32_t)ncap - 1;
+    for (size_t i = 0; i < n; i++) {
+        size_t slot = ptr_hash(keys[i]) & mask;
+        while (nt[slot] != 0) slot = (slot + 1) & mask;
+        nt[slot] = (uint32_t)(i + 1);
+    }
+    *cap_out = ncap;
+    return nt;
+}
+
+/* entries: base of an array whose stride is `stride`; the key sits in
+ * the first field (offset 0) of each entry */
+static size_t hash_find(const uint32_t *tbl, size_t cap, const void *key,
+                        const char *entries, size_t stride) {
+    if (tbl == NULL || cap == 0) return SIZE_MAX;
+    uint32_t mask = (uint32_t)cap - 1;
+    size_t slot = ptr_hash(key) & mask;
+    while (tbl[slot] != 0) {
+        size_t idx = tbl[slot] - 1;
+        const void *k = *(const void *const *)(entries + idx * stride);
+        if (k == key) return idx;
+        slot = (slot + 1) & mask;
+    }
+    return SIZE_MAX;
+}
+
+static void memo_hash_put(sctx *c, const jv *v) {
+    if (c->n_memo + 1 > c->memo_hash_cap * 7 / 10) {
+        /* rebuild from the entry list */
+        const void **keys = teptris_arena_alloc(
+            c->a, (c->n_memo + 1) * sizeof(*keys));
+        for (size_t i = 0; i < c->n_memo; i++) keys[i] = c->memo[i].src;
+        c->memo_hash = hash_build(c, keys, c->n_memo, &c->memo_hash_cap);
+    }
+    uint32_t mask = (uint32_t)c->memo_hash_cap - 1;
+    size_t slot = ptr_hash(v) & mask;
+    while (c->memo_hash[slot] != 0) slot = (slot + 1) & mask;
+    c->memo_hash[slot] = (uint32_t)c->n_memo + 1;
+}
+
 static sch_node *memo_get(sctx *c, const jv *v, bool *found, bool *busy) {
     *found = false;
     *busy = false;
-    for (size_t i = 0; i < c->n_memo; i++) {
-        if (c->memo[i].src == v) {
-            *found = true;
-            *busy = c->memo[i].in_progress;
-            return c->memo[i].node;
-        }
-    }
-    return NULL;
+    size_t idx = hash_find(c->memo_hash, c->memo_hash_cap, v,
+                           (const char *)c->memo, sizeof(*c->memo));
+    if (idx == SIZE_MAX) return NULL;
+    *found = true;
+    *busy = c->memo[idx].in_progress;
+    return c->memo[idx].node;
 }
 
 static void memo_put(sctx *c, const jv *v, sch_node *n) {
@@ -47,7 +105,9 @@ static void memo_put(sctx *c, const jv *v, sch_node *n) {
         void *nm = teptris_arena_alloc(c->a, c->cap_memo * sizeof(*c->memo));
         if (c->n_memo > 0) memcpy(nm, c->memo, c->n_memo * sizeof(*c->memo));
         c->memo = nm;
+        c->memo_hash_cap = 0; /* keys moved: rebuild on the next put */
     }
+    memo_hash_put(c, v);
     c->memo[c->n_memo].src = v;
     c->memo[c->n_memo].node = n;
     c->memo[c->n_memo].in_progress = true;
@@ -55,12 +115,9 @@ static void memo_put(sctx *c, const jv *v, sch_node *n) {
 }
 
 static void memo_done(sctx *c, const jv *v) {
-    for (size_t i = 0; i < c->n_memo; i++) {
-        if (c->memo[i].src == v) {
-            c->memo[i].in_progress = false;
-            return;
-        }
-    }
+    size_t idx = hash_find(c->memo_hash, c->memo_hash_cap, v,
+                           (const char *)c->memo, sizeof(*c->memo));
+    if (idx != SIZE_MAX) c->memo[idx].in_progress = false;
 }
 
 /* --------------------------------------------------- JSON Pointer -- */
@@ -137,6 +194,22 @@ sch_node *sch_resolve_pointer(sctx *c, const char *pointer) {
 
 /* pre-register every $id in the document against its enclosing base:
  * references may point at resources the compile has not reached yet */
+static void node_base_hash_put(sctx *c, const jv *v) {
+    if (c->n_node_bases + 1 > c->node_base_hash_cap * 7 / 10) {
+        const void **keys = teptris_arena_alloc(
+            c->a, (c->n_node_bases + 1) * sizeof(*keys));
+        for (size_t i = 0; i < c->n_node_bases; i++) {
+            keys[i] = c->node_bases[i].node;
+        }
+        c->node_base_hash = hash_build(c, keys, c->n_node_bases,
+                                       &c->node_base_hash_cap);
+    }
+    uint32_t mask = (uint32_t)c->node_base_hash_cap - 1;
+    size_t slot = ptr_hash(v) & mask;
+    while (c->node_base_hash[slot] != 0) slot = (slot + 1) & mask;
+    c->node_base_hash[slot] = (uint32_t)c->n_node_bases + 1;
+}
+
 static void node_base_put(sctx *c, const jv *v, const char *abs,
                           const char *dir, jv *root, bool recursive) {
     if (c->n_node_bases == c->cap_node_bases) {
@@ -148,7 +221,9 @@ static void node_base_put(sctx *c, const jv *v, const char *abs,
             memcpy(nb, c->node_bases, c->n_node_bases * sizeof(*c->node_bases));
         }
         c->node_bases = nb;
+        c->node_base_hash_cap = 0; /* keys moved: rebuild on the next put */
     }
+    node_base_hash_put(c, v);
     struct node_base *nb = &c->node_bases[c->n_node_bases++];
     nb->node = v;
     nb->abs = abs;
@@ -862,14 +937,16 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
     const char *saved_abs = c->cur_abs;
     jv *saved_root = c->cur_root;
     const char *saved_dir = c->cur_dir;
-    for (size_t i = 0; i < c->n_node_bases; i++) {
-        if (c->node_bases[i].node == v) {
-            if (c->node_bases[i].root != saved_root) {
-                c->cur_root = c->node_bases[i].root;
+    {
+        size_t idx = hash_find(c->node_base_hash, c->node_base_hash_cap, v,
+                               (const char *)c->node_bases,
+                               sizeof(*c->node_bases));
+        if (idx != SIZE_MAX) {
+            if (c->node_bases[idx].root != saved_root) {
+                c->cur_root = c->node_bases[idx].root;
             }
-            c->cur_abs = c->node_bases[i].abs;
-            c->cur_dir = c->node_bases[i].dir;
-            break;
+            c->cur_abs = c->node_bases[idx].abs;
+            c->cur_dir = c->node_bases[idx].dir;
         }
     }
     n->res_id = c->cur_root != NULL ? c->cur_root : c->root;
