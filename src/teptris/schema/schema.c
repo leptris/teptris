@@ -6,6 +6,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "refs.h"
+#include "metaschemas.h"
 #include "schema_internal.h"
 #include "teptris/teptris.h"
 
@@ -63,13 +65,16 @@ static void memo_done(sctx *c, const jv *v) {
 
 /* --------------------------------------------------- JSON Pointer -- */
 
-/* resolve "#", "#/a/b", or "#anchor" to a jv subtree */
+/* resolve "#", "#/a/b", or "#anchor" to a jv subtree of the CURRENT
+ * resource (a plain "#" names the resource the walk is inside, which
+ * is the document root for single-resource schemas) */
 static jv *resolve_local(sctx *c, const char *ref) {
     if (ref[0] != '#') return NULL;
-    if (ref[1] == '\0') return c->root;
+    jv *root = c->cur_root != NULL ? c->cur_root : c->root;
+    if (ref[1] == '\0') return root;
     if (ref[1] == '/') {
         /* JSON Pointer with ~0/~1 unescaping */
-        jv *cur = c->root;
+        jv *cur = root;
         const char *p = ref + 2;
         while (*p != '\0') {
             if (cur == NULL || jv_kind_of(cur) != JV_OBJECT) return NULL;
@@ -83,6 +88,18 @@ static jv *resolve_local(sctx *c, const char *ref) {
                 if (p[i] == '~' && i + 1 < tlen) {
                     tok[o++] = p[i + 1] == '1' ? '/' : '~';
                     i++;
+                } else if (p[i] == '%' && i + 2 < tlen) {
+                    /* RFC 3986: refs percent-decode before the
+                     * pointer walk (~1 decodes to '%', %25 to '%') */
+                    static const char hex[] = "0123456789abcdef";
+                    const char *hi = strchr(hex, (char)((p[i + 1] | 0x20)));
+                    const char *lo = strchr(hex, (char)((p[i + 2] | 0x20)));
+                    if (hi != NULL && lo != NULL) {
+                        tok[o++] = (char)((hi - hex) * 16 + (lo - hex));
+                        i += 2;
+                    } else {
+                        tok[o++] = p[i];
+                    }
                 } else {
                     tok[o++] = p[i];
                 }
@@ -117,6 +134,144 @@ sch_node *sch_resolve_pointer(sctx *c, const char *pointer) {
 }
 
 /* -------------------------------------------------- anchor collection */
+
+/* pre-register every $id in the document against its enclosing base:
+ * references may point at resources the compile has not reached yet */
+static void node_base_put(sctx *c, const jv *v, const char *abs,
+                          const char *dir, jv *root, bool recursive) {
+    if (c->n_node_bases == c->cap_node_bases) {
+        c->cap_node_bases =
+            c->cap_node_bases == 0 ? 64 : c->cap_node_bases * 2;
+        void *nb = teptris_arena_alloc(
+            c->a, c->cap_node_bases * sizeof(*c->node_bases));
+        if (c->n_node_bases > 0) {
+            memcpy(nb, c->node_bases, c->n_node_bases * sizeof(*c->node_bases));
+        }
+        c->node_bases = nb;
+    }
+    struct node_base *nb = &c->node_bases[c->n_node_bases++];
+    nb->node = v;
+    nb->abs = abs;
+    nb->dir = dir;
+    nb->root = root;
+    nb->recursive = recursive;
+}
+
+static void collect_ids(sctx *c, jv *v, const char *base, const char *dir,
+                        jv *res_root, bool res_recursive) {
+    if (v == NULL) return;
+    if (jv_kind_of(v) == JV_OBJECT) {
+        /* compute this node's own base first: a $id applies to the
+         * resource's own subtree, including its own $refs */
+        bool recursive_root = res_recursive;
+        jv *idv = jv_member_get(v, "$id");
+        if (idv != NULL && jv_kind_of(idv) == JV_STRING) {
+            const char *idtext = jv_str(idv);
+            if (idtext[0] == '#') {
+                /* a fragment-only $id aliases an anchor of the current
+                 * resource (2019-09+: same as $anchor) */
+                if (c->n_anchors == c->cap_anchors) {
+                    c->cap_anchors =
+                        c->cap_anchors == 0 ? 8 : c->cap_anchors * 2;
+                    void *na = teptris_arena_alloc(
+                        c->a, c->cap_anchors * sizeof(*c->anchors));
+                    if (c->n_anchors > 0) {
+                        memcpy(na, c->anchors,
+                               c->n_anchors * sizeof(*c->anchors));
+                    }
+                    c->anchors = na;
+                }
+                c->anchors[c->n_anchors].name = idtext + 1;
+                c->anchors[c->n_anchors].target = v;
+                c->n_anchors++;
+                /* the subtree still records with the current base:
+                 * nested $ids and refs beneath it keep resolving */
+            }
+            char abs[TEPTRIS_URI_MAX];
+            if (teptris_uri_join(base, idtext, abs, sizeof abs)) {
+                char *held = teptris_arena_alloc(c->a, strlen(abs) + 1);
+                strcpy(held, abs);
+                base = held;
+                res_root = v; /* a new resource boundary */
+                /* does this resource root declare $recursiveAnchor
+                 * true? (2019-09: it enables the dynamic $recursiveRef
+                 * within the resource) */
+                jv *ra = jv_member_get(v, "$recursiveAnchor");
+                recursive_root = ra != NULL && jv_kind_of(ra) == JV_BOOL &&
+                                 jv_bool(ra);
+                if (strncmp(abs, "file://", 7) == 0) {
+                    char path[TEPTRIS_URI_MAX];
+                    teptris_file_uri_to_path(abs, path, sizeof path);
+                    char *slash = strrchr(path, '/');
+                    char *held_dir = teptris_arena_alloc(
+                        c->a, (slash != NULL ? (size_t)(slash - path) : 0) + 2);
+                    if (slash != NULL) {
+                        size_t n = (size_t)(slash - path) + 1;
+                        memcpy(held_dir, path, n);
+                        held_dir[n] = '\0';
+                    } else {
+                        held_dir[0] = '\0';
+                    }
+                    dir = held_dir;
+                }
+            } else if ((strncmp(idtext, "http://", 7) == 0 ||
+                        strncmp(idtext, "https://", 8) == 0)) {
+                /* an http-space $id names an in-memory resource (the
+                 * document itself or one of its subtrees): it registers
+                 * under its own text and nested relative references
+                 * merge against that space; nothing ever loads from the
+                 * network */
+                char *held_id = teptris_arena_alloc(c->a, strlen(idtext) + 1);
+                strcpy(held_id, idtext);
+                base = held_id;
+                res_root = v;
+                jv *ra = jv_member_get(v, "$recursiveAnchor");
+                recursive_root = ra != NULL && jv_kind_of(ra) == JV_BOOL &&
+                                 jv_bool(ra);
+            }
+        }
+        node_base_put(c, v, base, dir, res_root, recursive_root);
+        const char *next_base = base;
+        const char *next_dir = dir;
+        /* the resource this $id names is registered under the
+         * already-joined base */
+        if (idv != NULL && base[0] != '\0') {
+            bool known = false;
+            for (size_t i = 0; i < c->n_resources; i++) {
+                if (strcmp(c->resources[i].abs, base) == 0) {
+                    known = true;
+                    break;
+                }
+            }
+            if (!known && c->n_resources < 128) {
+                if (c->n_resources == c->cap_resources) {
+                    c->cap_resources =
+                        c->cap_resources == 0 ? 8 : c->cap_resources * 2;
+                    void *nr = teptris_arena_alloc(
+                        c->a, c->cap_resources * sizeof(*c->resources));
+                    if (c->n_resources > 0) {
+                        memcpy(nr, c->resources,
+                               c->n_resources * sizeof(*c->resources));
+                    }
+                    c->resources = nr;
+                }
+                teptris_resource *res = &c->resources[c->n_resources++];
+                res->abs = base;
+                res->root = v;
+                res->node = NULL;
+                res->recursive_anchor = recursive_root;
+            }
+        }
+        for (size_t i = 0; i < jv_member_count(v); i++) {
+            collect_ids(c, jv_member_val(v, i), next_base, next_dir, res_root,
+                        recursive_root);
+        }
+    } else if (jv_kind_of(v) == JV_ARRAY) {
+        for (size_t i = 0; i < jv_item_count(v); i++) {
+            collect_ids(c, jv_item(v, i), base, dir, res_root, res_recursive);
+        }
+    }
+}
 
 static void collect_anchors(sctx *c, jv *v) {
     if (v == NULL) return;
@@ -167,6 +322,88 @@ static void collect_anchors(sctx *c, jv *v) {
     }
 }
 
+/* ------------------------------------------------ self scope frames -- */
+
+/* the anchors (dynamic or recursive) inside a schema's own subtree,
+ * self included, in document order: applying the schema puts all of
+ * them in dynamic scope, whether or not the walk reaches each one.
+ * $defs bodies compile lazily, so the walk compiles what it needs. */
+static void build_self_scope(sctx *c, jv *v) {
+    if (v == NULL) return;
+    if (jv_kind_of(v) == JV_OBJECT) {
+        bool found = false, busy = false;
+        sch_node *cn = memo_get(c, v, &found, &busy);
+        if (!found) cn = sch_compile_node(c, v);
+        if (cn != NULL &&
+            (cn->dynamic_anchor != NULL || cn->recursive_anchor != NULL)) {
+            if (c->n_entry_acc == c->cap_entry_acc) {
+                c->cap_entry_acc =
+                    c->cap_entry_acc == 0 ? 8 : c->cap_entry_acc * 2;
+                void *ne = teptris_arena_alloc(
+                    c->a, c->cap_entry_acc * sizeof(*c->entry_acc));
+                if (c->n_entry_acc > 0) {
+                    memcpy(ne, c->entry_acc,
+                           c->n_entry_acc * sizeof(*c->entry_acc));
+                }
+                c->entry_acc = ne;
+            }
+            c->entry_acc[c->n_entry_acc].name =
+                cn->dynamic_anchor != NULL ? cn->dynamic_anchor : "";
+            c->entry_acc[c->n_entry_acc].node = cn;
+            c->entry_acc[c->n_entry_acc].res = cn->res_id;
+            c->n_entry_acc++;
+        }
+        for (size_t i = 0; i < jv_member_count(v); i++) {
+            build_self_scope(c, jv_member_val(v, i));
+        }
+    } else if (jv_kind_of(v) == JV_ARRAY) {
+        for (size_t i = 0; i < jv_item_count(v); i++) {
+            build_self_scope(c, jv_item(v, i));
+        }
+    }
+}
+
+static void attach_self_scope(sctx *c, sch_node *owner, jv *self) {
+    /* the walk may compile a lazily-seen $defs body whose own attach
+     * re-enters this function: my entries start at the base and the
+     * accumulator is handed back to my caller untouched */
+    size_t base = c->n_entry_acc;
+    build_self_scope(c, self);
+    size_t mine = c->n_entry_acc - base;
+    if (mine == 0) return;
+    owner->self_scope =
+        teptris_arena_alloc(c->a, mine * sizeof(*owner->self_scope));
+    memcpy(owner->self_scope, &c->entry_acc[base],
+           mine * sizeof(*owner->self_scope));
+    owner->n_self_scope = mine;
+    c->n_entry_acc = base;
+}
+
+/* the first $dynamicAnchor with this name inside the CURRENT resource
+ * (the bookend: a fragment-only $dynamicRef initially resolves here) */
+static jv *resource_local_anchor(sctx *c, const char *name) {
+    jv *root = c->cur_root != NULL ? c->cur_root : c->root;
+    if (root == NULL || jv_kind_of(root) != JV_OBJECT) return NULL;
+    size_t base = c->n_entry_acc;
+    build_self_scope(c, root);
+    size_t mine = c->n_entry_acc - base;
+    for (size_t i = 0; i < mine; i++) {
+        if (strcmp(c->entry_acc[base + i].name, name) == 0) {
+            /* recover the anchor's jv through the compiled node: the
+             * walk was document order, so the first match is the
+             * resource-local initial resolution */
+            for (size_t m = 0; m < c->n_memo; m++) {
+                if (c->memo[m].node == c->entry_acc[base + i].node) {
+                    return (jv *)c->memo[m].src;
+                }
+            }
+            return NULL;
+        }
+    }
+    c->n_entry_acc = base;
+    return NULL;
+}
+
 /* ----------------------------------------------------------- compile -- */
 
 static int type_bit(const char *name) {
@@ -176,6 +413,7 @@ static int type_bit(const char *name) {
     if (strcmp(name, "boolean") == 0) return ST_BOOLEAN;
     if (strcmp(name, "object") == 0) return ST_OBJECT;
     if (strcmp(name, "array") == 0) return ST_ARRAY;
+    if (strcmp(name, "null") == 0) return ST_NULL;
     return 0;
 }
 
@@ -327,6 +565,275 @@ static bool sch_compile_dep_schema(sctx *c, sch_node *n, const char *key,
     return true;
 }
 
+/* resolve a non-fragment $ref against the current resource's base:
+ * the document part names a resource (file-backed), the fragment
+ * names a subtree within it. NULL with *remote set when the target
+ * is a network URI the library must not touch. */
+/* a builtin resource (the vendored metaschemas): parse once, register
+ * in the resource table, collect its anchors so its own refs resolve */
+static jv *load_builtin_resource(sctx *c, const char *uri,
+                                 const char *json) {
+    size_t len = strlen(json);
+    char jerr[160] = {0};
+    jv *root = json_read((teptris_arena *)&c->a, json, len, jerr, sizeof jerr);
+    if (root == NULL) return NULL;
+
+    if (c->n_resources == c->cap_resources) {
+        c->cap_resources = c->cap_resources == 0 ? 8 : c->cap_resources * 2;
+        void *nr = teptris_arena_alloc(
+            c->a, c->cap_resources * sizeof(*c->resources));
+        if (c->n_resources > 0) {
+            memcpy(nr, c->resources, c->n_resources * sizeof(*c->resources));
+        }
+        c->resources = nr;
+    }
+    teptris_resource *res = &c->resources[c->n_resources++];
+    res->abs = teptris_arena_alloc(c->a, strlen(uri) + 1);
+    strcpy((char *)res->abs, uri);
+    res->root = root;
+    res->node = NULL;
+    jv *ra = jv_kind_of(root) == JV_OBJECT
+                 ? jv_member_get(root, "$recursiveAnchor")
+                 : NULL;
+    res->recursive_anchor =
+        ra != NULL && jv_kind_of(ra) == JV_BOOL && jv_bool(ra);
+    collect_anchors(c, root);
+    bool recursive = res->recursive_anchor;
+    collect_ids(c, root, uri, NULL, root, recursive);
+    return root;
+}
+
+static jv *resolve_uri_ref(sctx *c, const char *r, bool *remote);
+
+static jv *find_builtin_resource(sctx *c, const char *uri) {
+    for (size_t i = 0; i < teptris_n_builtin_resources; i++) {
+        if (strcmp(teptris_builtin_resources[i].uri, uri) == 0) {
+            return load_builtin_resource(c, uri,
+                                         teptris_builtin_resources[i].json);
+        }
+    }
+    return NULL;
+}
+
+/* the dialect's vocabulary mask: a custom metaschema's $vocabulary
+ * decides which standard vocabularies the schema uses (8.1.2); an
+ * unrecognized or unresolvable $schema keeps all of them */
+static void detect_vocab(sctx *c, jv *root) {
+    c->vocab_mask = TEPTRIS_VOC_ALL;
+    if (jv_kind_of(root) != JV_OBJECT) return;
+    jv *sv = jv_member_get(root, "$schema");
+    if (sv == NULL || jv_kind_of(sv) != JV_STRING) return;
+    const char *s = jv_str(sv);
+    if (strstr(s, "draft-04/") != NULL || strstr(s, "draft-06/") != NULL ||
+        strstr(s, "draft-07/") != NULL ||
+        strstr(s, "/draft/2019-09/schema") != NULL ||
+        strstr(s, "/draft/2020-12/schema") != NULL) {
+        return; /* a standard dialect: every vocabulary */
+    }
+    bool remote = false;
+    jv *meta = resolve_uri_ref(c, s, &remote);
+    if (meta == NULL || jv_kind_of(meta) != JV_OBJECT) return;
+    jv *voc = jv_member_get(meta, "$vocabulary");
+    if (voc == NULL || jv_kind_of(voc) != JV_OBJECT) return;
+    /* only listed vocabularies are in the dialect; core is mandatory */
+    c->vocab_mask = 0;
+    for (size_t i = 0; i < jv_member_count(voc); i++) {
+        const char *uri = jv_member_key(voc, i);
+        jv *req = jv_member_val(voc, i);
+        if (req == NULL || jv_kind_of(req) != JV_BOOL || !jv_bool(req)) {
+            continue;
+        }
+        unsigned bit = 0;
+        if (strstr(uri, "/vocab/applicator") != NULL) {
+            bit = TEPTRIS_VOC_APPLICATOR;
+        } else if (strstr(uri, "/vocab/unevaluated") != NULL) {
+            bit = TEPTRIS_VOC_UNEVALUATED;
+        } else if (strstr(uri, "/vocab/validation") != NULL) {
+            bit = TEPTRIS_VOC_VALIDATION;
+        } else if (strstr(uri, "/vocab/format") != NULL) {
+            bit = TEPTRIS_VOC_FORMAT;
+        } else if (strstr(uri, "/vocab/content") != NULL) {
+            bit = TEPTRIS_VOC_CONTENT;
+        }
+        c->vocab_mask |= bit;
+    }
+}
+
+/* the vocabulary a keyword belongs to (0 = core or unknown: ungated) */
+static unsigned keyword_vocab(const char *k) {
+    static const struct { const char *name; unsigned bit; } tbl[] = {
+        {"allOf", TEPTRIS_VOC_APPLICATOR},
+        {"anyOf", TEPTRIS_VOC_APPLICATOR},
+        {"oneOf", TEPTRIS_VOC_APPLICATOR},
+        {"not", TEPTRIS_VOC_APPLICATOR},
+        {"if", TEPTRIS_VOC_APPLICATOR},
+        {"then", TEPTRIS_VOC_APPLICATOR},
+        {"else", TEPTRIS_VOC_APPLICATOR},
+        {"properties", TEPTRIS_VOC_APPLICATOR},
+        {"patternProperties", TEPTRIS_VOC_APPLICATOR},
+        {"additionalProperties", TEPTRIS_VOC_APPLICATOR},
+        {"additionalItems", TEPTRIS_VOC_APPLICATOR},
+        {"propertyNames", TEPTRIS_VOC_APPLICATOR},
+        {"items", TEPTRIS_VOC_APPLICATOR},
+        {"prefixItems", TEPTRIS_VOC_APPLICATOR},
+        {"contains", TEPTRIS_VOC_APPLICATOR},
+        {"dependentSchemas", TEPTRIS_VOC_APPLICATOR},
+        {"unevaluatedProperties", TEPTRIS_VOC_UNEVALUATED},
+        {"unevaluatedItems", TEPTRIS_VOC_UNEVALUATED},
+        {"type", TEPTRIS_VOC_VALIDATION},
+        {"enum", TEPTRIS_VOC_VALIDATION},
+        {"const", TEPTRIS_VOC_VALIDATION},
+        {"multipleOf", TEPTRIS_VOC_VALIDATION},
+        {"maximum", TEPTRIS_VOC_VALIDATION},
+        {"exclusiveMaximum", TEPTRIS_VOC_VALIDATION},
+        {"minimum", TEPTRIS_VOC_VALIDATION},
+        {"exclusiveMinimum", TEPTRIS_VOC_VALIDATION},
+        {"maxLength", TEPTRIS_VOC_VALIDATION},
+        {"minLength", TEPTRIS_VOC_VALIDATION},
+        {"pattern", TEPTRIS_VOC_VALIDATION},
+        {"maxItems", TEPTRIS_VOC_VALIDATION},
+        {"minItems", TEPTRIS_VOC_VALIDATION},
+        {"uniqueItems", TEPTRIS_VOC_VALIDATION},
+        {"maxContains", TEPTRIS_VOC_VALIDATION},
+        {"minContains", TEPTRIS_VOC_VALIDATION},
+        {"maxProperties", TEPTRIS_VOC_VALIDATION},
+        {"minProperties", TEPTRIS_VOC_VALIDATION},
+        {"required", TEPTRIS_VOC_VALIDATION},
+        {"dependentRequired", TEPTRIS_VOC_VALIDATION},
+        {"dependentExclusive", TEPTRIS_VOC_VALIDATION},
+        {"format", TEPTRIS_VOC_FORMAT},
+        {"contentEncoding", TEPTRIS_VOC_CONTENT},
+        {"contentMediaType", TEPTRIS_VOC_CONTENT},
+        {"contentSchema", TEPTRIS_VOC_CONTENT},
+    };
+    for (size_t i = 0; i < sizeof tbl / sizeof tbl[0]; i++) {
+        if (strcmp(tbl[i].name, k) == 0) return tbl[i].bit;
+    }
+    return 0;
+}
+
+static jv *resolve_uri_ref(sctx *c, const char *r, bool *remote) {
+    *remote = false;
+    char doc[TEPTRIS_URI_MAX];
+    char frag[TEPTRIS_URI_MAX];
+    teptris_uri_split(r, doc, sizeof doc, frag, sizeof frag);
+    if (doc[0] == '\0') {
+        /* a fragment-only reference names a subtree of the current
+         * resource (a $id like "#anchor" aliases an anchor) */
+        char refbuf[TEPTRIS_URI_MAX];
+        snprintf(refbuf, sizeof refbuf, "#%s", frag);
+        return resolve_local(c, refbuf);
+    }
+    /* the vendored metaschemas resolve from the built-in table: a
+     * parser library never touches the network, and these URIs are
+     * part of the dialect itself */
+    {
+        jv *builtin = find_builtin_resource(c, doc);
+        if (builtin != NULL) return builtin;
+    }
+    /* network targets are rejected outright, with or without a base */
+    if (strncmp(doc, "http://", 7) == 0 || strncmp(doc, "https://", 8) == 0) {
+        *remote = true;
+        return NULL;
+    }
+    /* candidate bases: the base URI in effect, then the resource's
+     * file directory (a remote $id naming a file the compile loaded);
+     * each candidate tries the resource table, then the filesystem.
+     * Relative references join whichever base is fs-backed when the
+     * base URI itself is not. */
+    char abs[TEPTRIS_URI_MAX];
+    jv *root = NULL;
+    const char *bases[2];
+    size_t n_bases = 0;
+    bases[n_bases++] = c->cur_abs;
+    if (c->cur_dir != NULL && c->cur_dir[0] != '\0') {
+        bases[n_bases++] = c->cur_dir;
+    }
+    for (size_t bi = 0; bi < n_bases && root == NULL; bi++) {
+        const char *base = bases[bi];
+        if (base == NULL || base[0] == '\0') continue;
+        if (!teptris_uri_join(base, doc, abs, sizeof abs)) {
+            if (bi == n_bases - 1) {
+                *remote = true;
+                return NULL;
+            }
+            continue;
+        }
+        for (size_t i = 0; i < c->n_resources; i++) {
+            if (strcmp(c->resources[i].abs, abs) == 0) {
+                root = c->resources[i].root;
+                break;
+            }
+        }
+        if (root == NULL) root = find_builtin_resource(c, abs);
+        if (root == NULL && abs[0] != '\0' &&
+            strncmp(abs, "http://", 7) != 0 &&
+            strncmp(abs, "https://", 8) != 0 && strncmp(abs, "urn:", 4) != 0) {
+            root = sch_load_resource(c, abs);
+            if (root != NULL) {
+                /* the loaded file joins the resource model: its own
+                 * $ids register and its nodes record bases so its
+                 * internal refs resolve within it */
+                char path[TEPTRIS_URI_MAX];
+                teptris_file_uri_to_path(abs, path, sizeof path);
+                char *slash = strrchr(path, '/');
+                char dirbuf[TEPTRIS_URI_MAX];
+                if (slash != NULL) {
+                    size_t n = (size_t)(slash - path) + 1;
+                    if (n < sizeof dirbuf) {
+                        memcpy(dirbuf, path, n);
+                        dirbuf[n] = '\0';
+                    } else {
+                        dirbuf[0] = '\0';
+                    }
+                } else {
+                    dirbuf[0] = '\0';
+                }
+                char *held = teptris_arena_alloc(c->a, strlen(dirbuf) + 1);
+                strcpy(held, dirbuf);
+                char abs_held[TEPTRIS_URI_MAX];
+                snprintf(abs_held, sizeof abs_held, "%s", abs);
+                char *held_abs = teptris_arena_alloc(c->a, strlen(abs_held) + 1);
+                strcpy(held_abs, abs_held);
+                bool loaded_recursive = false;
+                if (jv_kind_of(root) == JV_OBJECT) {
+                    jv *ra = jv_member_get(root, "$recursiveAnchor");
+                    loaded_recursive = ra != NULL &&
+                                       jv_kind_of(ra) == JV_BOOL && jv_bool(ra);
+                }
+                collect_ids(c, root, held_abs, held, root, loaded_recursive);
+            }
+        }
+    }
+    if (root == NULL) return NULL;
+    if (frag[0] == '\0') return root;
+    if (frag[0] == '/') {
+        /* JSON Pointer into the loaded resource */
+        const char *saved = c->cur_abs;
+        jv *saved_root = c->cur_root;
+        char refbuf[TEPTRIS_URI_MAX];
+        snprintf(refbuf, sizeof refbuf, "#%s", frag);
+        c->cur_root = root;
+        jv *hit = resolve_local(c, refbuf);
+        c->cur_root = saved_root;
+        c->cur_abs = saved;
+        return hit;
+    }
+    /* plain-name fragment inside the loaded resource: an $anchor, or
+     * for a $dynamicRef the resource's own $dynamicAnchor */
+    for (size_t i = 0; i < c->n_anchors; i++) {
+        if (strcmp(c->anchors[i].name, frag) == 0) {
+            return c->anchors[i].target;
+        }
+    }
+    for (size_t i = 0; i < c->n_dyn_anchors; i++) {
+        if (strcmp(c->dyn_anchors[i].name, frag) == 0) {
+            return c->dyn_anchors[i].target;
+        }
+    }
+    return NULL;
+}
+
 sch_node *sch_compile_node(sctx *c, const jv *v) {
     bool found, busy;
     sch_node *memo_hit = memo_get(c, v, &found, &busy);
@@ -349,9 +856,34 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
     sch_node *n = sch_node_new(c);
     memo_put(c, v, n);
 
+    /* the pre-pass recorded this node's base and resource root: a
+     * pointer can reach a subtree whose $id chain the document walk
+     * never passes through at compile time */
+    const char *saved_abs = c->cur_abs;
+    jv *saved_root = c->cur_root;
+    const char *saved_dir = c->cur_dir;
+    for (size_t i = 0; i < c->n_node_bases; i++) {
+        if (c->node_bases[i].node == v) {
+            if (c->node_bases[i].root != saved_root) {
+                c->cur_root = c->node_bases[i].root;
+            }
+            c->cur_abs = c->node_bases[i].abs;
+            c->cur_dir = c->node_bases[i].dir;
+            break;
+        }
+    }
+    n->res_id = c->cur_root != NULL ? c->cur_root : c->root;
+
     for (size_t i = 0; i < jv_member_count(v); i++) {
         const char *k = jv_member_key(v, i);
         jv *val = jv_member_val(v, i);
+
+        unsigned kgate = keyword_vocab(k);
+        if (kgate != 0 && (c->vocab_mask & kgate) == 0) {
+            /* the dialect dropped this vocabulary: the keyword is an
+             * annotation (8.1.2) */
+            continue;
+        }
 
         if (strcmp(k, "type") == 0) {
             if (!compile_type(c, n, val, k)) return NULL;
@@ -361,15 +893,28 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
                 return NULL;
             }
             const char *r = jv_str(val);
-            if (r[0] != '#') {
-                sfail(c, "remote $ref is not supported (a parser library never touches the network)", r);
-                return NULL;
+            if (r[0] == '#') {
+                n->ref = sch_resolve_pointer(c, r);
+                if (n->ref == NULL) {
+                    sfail(c, "unresolvable $ref", r);
+                    return NULL;
+                }
+            } else {
+                bool remote = false;
+                jv *target = resolve_uri_ref(c, r, &remote);
+                if (remote) {
+                    sfail(c, "remote $ref is not supported (a parser library never touches the network)", r);
+                    return NULL;
+                }
+                if (target == NULL) {
+                    sfail(c, "unresolvable $ref", r);
+                    return NULL;
+                }
+                n->ref = sch_compile_node(c, target);
             }
-            n->ref = sch_resolve_pointer(c, r);
-            if (n->ref == NULL) {
-                sfail(c, "unresolvable $ref", r);
-                return NULL;
-            }
+            if (n->ref == NULL && c->err[0] != '\0') return NULL;
+            /* draft 07 and older: a $ref ignores every sibling */
+            n->ref_only = c->ref_exclusive;
         } else if (strcmp(k, "enum") == 0) {
             if (jv_kind_of(val) != JV_ARRAY) {
                 sfail(c, "enum must be an array", k);
@@ -378,6 +923,7 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
             n->enum_vals = teptris_arena_alloc(
                 c->a, (jv_item_count(val) ? jv_item_count(val) : 1) * sizeof(jv *));
             n->n_enum = jv_item_count(val);
+            n->enum_empty = jv_item_count(val) == 0;
             for (size_t e = 0; e < jv_item_count(val); e++) {
                 n->enum_vals[e] = jv_item(val, e);
             }
@@ -427,7 +973,7 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
             n->dynamic_anchor = jv_str(val);
         } else if (strcmp(k, "$recursiveAnchor") == 0 &&
                    jv_kind_of(val) == JV_BOOL && jv_bool(val)) {
-            n->recursive_anchor = "$";
+            n->recursive_anchor = "";
         } else if (strcmp(k, "$dynamicRef") == 0 ||
                    strcmp(k, "$recursiveRef") == 0) {
             if (jv_kind_of(val) != JV_STRING) {
@@ -436,18 +982,37 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
             }
             const char *r = jv_str(val);
             bool recursive = strcmp(k, "$recursiveRef") == 0;
-            /* $recursiveRef is always the bare "#"; a pointer-form
-             * $dynamicRef ("#/pointer") does not participate in
-             * dynamic scope resolution - the spec and the suite both
-             * read it exactly like a plain $ref - so only the
-             * plain-name fragment form reaches the scope machinery */
+            /* $recursiveRef is always the bare "#"; a $dynamicRef may
+             * also name a URI or pointer ("#/pointer", "other.json",
+             * "main.json#/$defs/inner"): none of those forms
+             * participate in dynamic scope resolution - the spec and
+             * the suite both read them exactly like a plain $ref - so
+             * only the plain-name fragment form reaches the scope
+             * machinery */
             if (r[0] != '#' || (recursive && r[1] != '\0') ||
                 (!recursive && r[1] == '\0')) {
-                sfail(c,
-                      "dynamic $refs are plain-name fragments "
-                      "(\"#anchor\") or pointers (\"#/a/b\")",
-                      r);
-                return NULL;
+                bool remote = false;
+                jv *target = NULL;
+                if (r[0] != '#') {
+                    target = resolve_uri_ref(c, r, &remote);
+                } else {
+                    sfail(c,
+                          "dynamic $refs are plain-name fragments "
+                          "(\"#anchor\") or pointers (\"#/a/b\")",
+                          r);
+                    return NULL;
+                }
+                if (remote) {
+                    sfail(c, "remote dynamic $ref is not supported", r);
+                    return NULL;
+                }
+                if (target == NULL) {
+                    sfail(c, "unresolvable dynamic $ref", r);
+                    return NULL;
+                }
+                n->ref = sch_compile_node(c, target);
+                if (n->ref == NULL && c->err[0] != '\0') return NULL;
+                continue;
             }
             if (!recursive && strchr(r + 1, '/') != NULL) {
                 n->ref = sch_resolve_pointer(c, r);
@@ -461,11 +1026,36 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
              * the innermost scope wins at validation time */
             jv *target = NULL;
             if (recursive) {
-                target = c->rec_anchor_target != NULL
-                             ? c->rec_anchor_target
-                             : c->root;
+                /* 2019-09: when the ref's own resource carries a true
+                 * $recursiveAnchor the resolution is dynamic (the first
+                 * anchor entered wins at walk time); otherwise the ref
+                 * does not join the dynamic machinery at all and reads
+                 * as a plain reference to the resource's root */
+                bool dyn = false;
+                for (size_t r2 = 0; r2 < c->n_resources; r2++) {
+                    if (c->resources[r2].root == c->cur_root &&
+                        c->resources[r2].recursive_anchor) {
+                        dyn = true;
+                    }
+                }
+                if (dyn) {
+                    target = c->rec_anchor_target != NULL
+                                 ? c->rec_anchor_target
+                                 : (c->cur_root != NULL ? c->cur_root
+                                                        : c->root);
+                } else {
+                    n->ref = sch_compile_node(
+                        c, c->cur_root != NULL ? c->cur_root : c->root);
+                    if (n->ref == NULL && c->err[0] != '\0') return NULL;
+                    continue;
+                }
             } else {
-                for (size_t d = 0; d < c->n_dyn_anchors && target == NULL; d++) {
+                /* a fragment-only $dynamicRef initially resolves to
+                 * the matching $dynamicAnchor in the CURRENT resource
+                 * (the bookend); the doc-wide table is the fallback */
+                target = resource_local_anchor(c, r + 1);
+                for (size_t d = 0; d < c->n_dyn_anchors && target == NULL;
+                     d++) {
                     if (strcmp(c->dyn_anchors[d].name, r + 1) == 0) {
                         target = c->dyn_anchors[d].target;
                     }
@@ -482,6 +1072,7 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
             if (n->dynamic_ref_target == NULL && c->err[0] != '\0') {
                 return NULL;
             }
+            n->dynamic_recursive = recursive;
         } else if (strcmp(k, "contentSchema") == 0) {
             n->content_schema = sch_compile_node(c, val);
             if (n->content_schema == NULL && c->err[0] != '\0') return NULL;
@@ -710,6 +1301,10 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
          * definitions/$anchor (containers resolved via $ref), unknown
          * keywords (extensions per the spec): all ignored */
     }
+    c->cur_abs = saved_abs;
+    c->cur_root = saved_root;
+    c->cur_dir = saved_dir;
+    attach_self_scope(c, n, v);
     memo_done(c, v);
     return n;
 }
@@ -746,10 +1341,29 @@ bool sch_decimal_of_double(double d, int64_t *mant, int *exp) {
     return true;
 }
 
+static teptris_status schema_compile_core(const char *json, size_t len,
+                                          const char *base_dir, size_t base_len,
+                                          struct teptris_schema **out,
+                                          char **diag_buf, size_t *diag_len);
+
+TEPTRIS_API teptris_status teptris_schema_compile_ex(
+    const char *json, size_t len, const char *base_dir, size_t base_len,
+    struct teptris_schema **out, char **diag_buf, size_t *diag_len) {
+    return schema_compile_core(json, len, base_dir, base_len, out, diag_buf,
+                               diag_len);
+}
+
 TEPTRIS_API teptris_status teptris_schema_compile(const char *json, size_t len,
                                                   struct teptris_schema **out,
                                                   char **diag_buf,
                                                   size_t *diag_len) {
+    return schema_compile_core(json, len, NULL, 0, out, diag_buf, diag_len);
+}
+
+static teptris_status schema_compile_core(const char *json, size_t len,
+                                          const char *base_dir, size_t base_len,
+                                          struct teptris_schema **out,
+                                          char **diag_buf, size_t *diag_len) {
     if (json == NULL || out == NULL) {
         return TEPTRIS_ERR_ARG;
     }
@@ -800,8 +1414,56 @@ TEPTRIS_API teptris_status teptris_schema_compile(const char *json, size_t len,
     c.err = sch->err;
     c.err_cap = sizeof sch->err;
     sch->err[0] = '\0';
+    c.cur_root = root;
+    if (base_dir != NULL && base_len > 0 && base_len < sizeof c.base_dir) {
+        memcpy(c.base_dir, base_dir, base_len);
+        c.base_dir[base_len] = '\0';
+        char abs[TEPTRIS_URI_MAX];
+        if (c.base_dir[strlen(c.base_dir) - 1] == '/') {
+            snprintf(abs, sizeof abs, "file://%sschema.json", c.base_dir);
+        } else {
+            snprintf(abs, sizeof abs, "file://%s/schema.json", c.base_dir);
+        }
+        char *held = teptris_arena_alloc(&sch->arena, strlen(abs) + 1);
+        strcpy(held, abs);
+        c.cur_abs = held;
+    }
+    if (c.base_dir[0] != '\0') {
+        char *held = teptris_arena_alloc(&sch->arena, strlen(c.base_dir) + 2);
+        sprintf(held, "%s/", c.base_dir);
+        c.cur_dir = held;
+    }
+    /* draft 07 and older make a $ref ignore its siblings; 2019-09+
+     * evaluate $ref alongside them. The root's $schema decides. */
+    if (jv_kind_of(root) == JV_OBJECT) {
+        jv *sv = jv_member_get(root, "$schema");
+        if (sv != NULL && jv_kind_of(sv) == JV_STRING) {
+            const char *s = jv_str(sv);
+            if (strstr(s, "draft-04") != NULL || strstr(s, "draft-06") != NULL ||
+                strstr(s, "draft-07") != NULL) {
+                c.ref_exclusive = true;
+            }
+        }
+    }
 
+    bool root_recursive = false;
+    if (jv_kind_of(root) == JV_OBJECT) {
+        jv *ra = jv_member_get(root, "$recursiveAnchor");
+        root_recursive = ra != NULL && jv_kind_of(ra) == JV_BOOL &&
+                         jv_bool(ra);
+    }
+    c.cap_resources = 8;
+    c.resources = teptris_arena_alloc(&sch->arena,
+                                      c.cap_resources * sizeof(*c.resources));
+    teptris_resource *root_res = &c.resources[c.n_resources++];
+    root_res->abs = c.cur_abs != NULL ? c.cur_abs : "";
+    root_res->root = root;
+    root_res->node = NULL;
+    root_res->recursive_anchor = root_recursive;
+    detect_vocab(&c, root);
     collect_anchors(&c, root);
+    collect_ids(&c, root, c.cur_abs, c.cur_dir != NULL ? c.cur_dir : c.base_dir,
+                root, root_recursive);
     sch_node *compiled = sch_compile_node(&c, root);
     if (compiled == NULL) {
         if (diag_buf != NULL) {

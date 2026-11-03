@@ -74,6 +74,13 @@ typedef struct teptris_schema teptris_schema;
  * {"error": "...", "path": "..."} locating the problem; free it with
  * teptris_diag_free. Either out or diag_buf may be NULL if the caller
  * does not want it. */
+/* compile with a base directory: relative $refs and $ids in the
+ * schema resolve against files under it (local files only - the
+ * library never touches the network). compile() is compile_ex(NULL). */
+TEPTRIS_API teptris_status teptris_schema_compile_ex(
+    const char *json, size_t len, const char *base_dir, size_t base_len,
+    struct teptris_schema **out, char **diag_buf, size_t *diag_len);
+
 TEPTRIS_API teptris_status teptris_schema_compile(const char *json, size_t len,
                                                   teptris_schema **out,
                                                   char **diag_buf,

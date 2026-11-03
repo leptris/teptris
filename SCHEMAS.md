@@ -79,13 +79,13 @@ The CLI rides the same engine path:
 | `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf` | full; exact integer paths when the constraint is an exact integer token (no float drift on integers); `multipleOf` must be > 0 |
 | `enum`, `const` | full, type-strict deep equality (policy 2/3) |
 | `allOf`, `anyOf`, `oneOf`, `not`, `if`/`then`/`else` | full; failing trials are muted (they contribute no errors, only the verdict) |
-| `$ref` | local only: `#`, JSON Pointer `#/definitions/...` (`~0`/`~1` unescaped), plain-name `#anchor` fragments from `$anchor`. Recursive refs are memoized; a cycle that consumes no document structure errors as cyclic. Remote/URL refs are rejected — a parser library never touches the network |
+| `$ref` | full reference machinery over the **resource model**: every `$id` opens a resource (in-memory or file-backed under the compile's base dir), relative references RFC-3986-merge against the current base (http-space `$id`s resolve in memory, never fetched), file resources load size-capped, and the official metaschemas (draft-07/2019-09/2020-12) ship as built-in resources. `#`, `#/pointer` (`~0`/`~1` + percent-decoding), `#anchor`, and cross-resource URIs all resolve. Recursive refs are memoized; a cycle that consumes no document structure errors as cyclic. Network fetches are still rejected — a parser library never touches the network |
 | `$schema`, `$id`, `$comment`, `$defs`, `definitions`, `title`, `description`, `default`, `examples`, `deprecated`, `readOnly`, `writeOnly` | annotations/containers: accepted, ignored |
 | unknown keywords | accepted (2020-12 extension rule) |
 | `unevaluatedProperties`, `unevaluatedItems` | full, per the 2020-12 annotation model: annotations from adjacent keywords and from in-place applicators ($ref, allOf, anyOf/oneOf successful branches, if-then-else) evaluate the instance; cousins never share; failed trials annotate nothing |
-| `$dynamicRef`, `$dynamicAnchor`, `$recursiveRef`, `$recursiveAnchor` | full for single-document schemas: the innermost matching anchor on the evaluation path wins; a pointer-form `$dynamicRef` reads exactly like a plain `$ref` |
+| `$dynamicRef`, `$dynamicAnchor`, `$recursiveRef`, `$recursiveAnchor` | full, spec-exact (2020-12 §8.2.3.2 + appendix C): each applied schema object enters its subtree's anchors into the dynamic scope; `$dynamicRef` resolves to the outermost resource on the evaluation path that defines the fragment (nearest-`$id` ownership, document order within a resource), the initial resolution standing as fallback; `$recursiveRef` participates only when the ref's own resource carries a true `$recursiveAnchor`, resolving to the first anchor-carrying resource root on the path. URI- and pointer-form dynamic refs read exactly like a plain `$ref` |
 | `contentSchema` | full: asserts the decoded content (the parsed value for `application/json`, the decoded text otherwise) |
-| `$vocabulary` | annotation (accepted, ignored — declarative only in practice) |
+| `$vocabulary` | enforced through the `$schema` metaschema: a custom metaschema's `$vocabulary` decides which standard vocabularies the dialect keeps (core is mandatory; unlisted or false vocabularies turn their keywords into annotations). Unresolvable `$schema` keeps all vocabularies |
 
 The enforced format set (23 names — the taplo parity set plus
 tombi's TOML-native pair): `date-time`, `date`, `time`,
@@ -109,15 +109,22 @@ Schema test suite** (draft 2020-12) run through teptris:
     python3 scripts/sota_suite_check.py
     # passed 964/1011, skipped 287 (pinned suite commit ed0ebd31)
 
-Every representable, in-subset case passes. The 47 misses are the
-documented policy stances, never accidents: `format`/`content`
-assertion (teptris enforces where 2020-12 annotates — the same
-direction as taplo's draft-07 lens and tombi's default
-`format_assertion`), `const`/`enum`/`type` numeric-identity
-strictness (policy 2), and Unicode property escapes in patterns (the
-NFA dialect). The 287 skips are TOML-unrepresentable instances (null,
-non-table roots, `$id` resources, remote refs) — the suite harness
-classifies every skip.
+And — the decisive gate this round — tombi's own suite definition
+("Definition A": the official suite at tombi's pin, required files
+only, drafts 7 / 2019-09 / 2020-12, the exact harness tombi runs at
+1173/1173):
+
+    python3 scripts/suiteA_check.py
+    # passed 1173/1173, skipped 2318 (non-representable only),
+    # schema-rejected 0 — full parity with tombi's json-schema-test
+
+Every representable case passes; there are no remaining misses and no
+schema rejections. The metaschema cases (definitions/remote-ref/vocab)
+pass through the vendored built-in metaschemas (draft-07, 2019-09,
+2020-12 and their meta files), so even `"$ref":
+"https://json-schema.org/draft/2020-12/schema"` resolves without a
+network. The skips are TOML-unrepresentable instances (null,
+non-table roots) — the harness classifies every skip.
 
 Where teptris stands against tombi and the modern crate:
 
@@ -128,9 +135,11 @@ Where teptris stands against tombi and the modern crate:
   teptris's verdicts match the suite and the crate everywhere the
   suite tests.
 - **$dynamicRef/$dynamicAnchor/$recursiveRef/$recursiveAnchor** —
-  full single-document support (innermost-anchor-wins, leaf-override
-  verified against both engines). Pointer-form `$dynamicRef` reads
-  like a plain `$ref`, as the suite defines it.
+  spec-exact across all three drafts, including the full dynamic-scope
+  resource model (appendix C's outermost-resource rule, the bookend
+  fallback, multiple dynamic paths, skip-over-intermediate-resources,
+  and the metaschema's own `#meta` recursion). Pointer- and URI-form
+  dynamic refs read like a plain `$ref`, as the suite defines them.
 - **contentSchema** — asserted (tombi parses it as a schema keyword;
   teptris enforces the decoded content against it).
 - **`date-time-local` / `time-local`** — tombi's TOML-native named
@@ -151,6 +160,12 @@ Where teptris stands against tombi and the modern crate:
   `minContains`/`maxContains`/`uuid`/`duration` or any 2020-12
   keyword; teptris enforces all of it, plus the taplo-only
   `semver`/`semver-requirement` formats).
+
+This round also landed the **resource model** (`refs.c`): URI
+joining/merging (RFC 3986 5.3), file-backed resources under the
+compile's base directory, the built-in metaschema table, and
+`$vocabulary`-gated keyword enforcement — the surface tombi's
+validator actually exercises.
 
 The audit also surfaced and fixed two engine bugs the suite exposed:
 `jstring`'s escape path dropped the plain prefix of any JSON string

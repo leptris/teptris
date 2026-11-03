@@ -19,9 +19,10 @@ enum {
     ST_NUMBER = 1 << 2, /* float or integer */
     ST_BOOLEAN = 1 << 3,
     ST_OBJECT = 1 << 4,
-    ST_ARRAY = 1 << 5
+    ST_ARRAY = 1 << 5,
+    ST_NULL = 1 << 6 /* the JSON null type (policy 1: no TOML value) */
 };
-#define ST_ANY 0x3Fu
+#define ST_ANY 0x7Fu
 
 enum {
     FMT_NONE = 0,
@@ -109,11 +110,25 @@ struct sch_node {
     sch_node *uneval_props; /* unevaluatedProperties: frame-local */
     sch_node *uneval_items; /* unevaluatedItems: frame-local */
     sch_node *content_schema; /* contentSchema: asserts decoded content */
+    /* the dynamic anchors inside this node's own subtree (self
+     * included, document order): pushed as one scope frame whenever
+     * this node is applied — the dynamic scope grows per entered
+     * subschema, not per traversed anchor */
+    struct sch_scope_entry {
+        const char *name;
+        struct sch_node *node;
+        const jv *res; /* the anchor's own resource (nearest $id) */
+    } *self_scope;
+    size_t n_self_scope;
+    const jv *res_id;             /* the resource root this node sits in */
+    bool dynamic_recursive;       /* the ref site was a $recursiveRef */
     const char *dynamic_anchor;   /* $dynamicAnchor name carried here */
-    const char *recursive_anchor; /* "$" when $recursiveAnchor is true */
+    const char *recursive_anchor; /* "" when $recursiveAnchor is true */
     const char *dynamic_ref;      /* "#name" fragment for
                                    * $dynamicRef / $recursiveRef */
     sch_node *dynamic_ref_target; /* compile-resolved static fallback */
+    bool ref_only;  /* draft-07-and-older: this $ref ignores siblings */
+    bool enum_empty; /* "enum": [] matches nothing */
     sch_node *contains;
     long min_contains, max_contains;
     bool has_contains, has_min_contains, has_max_contains;
@@ -158,6 +173,8 @@ struct teptris_schema {
     char err[256];
 };
 
+typedef struct teptris_resource teptris_resource;
+
 typedef struct {
     teptris_arena *a;
     jv *root;
@@ -170,23 +187,66 @@ typedef struct {
     size_t n_memo, cap_memo;
     /* dependency-list capacities (grow-in-place across keywords) */
     size_t cap_dep_req, cap_dep_schemas;
-    /* anchors: "$anchor": name -> subtree */
+    /* anchors: "$anchor": name -> subtree (doc-wide; the $anchor
+     * space of every loaded resource joins it) */
     struct {
         const char *name;
         jv *target;
     } *anchors;
     size_t n_anchors, cap_anchors;
-    /* $dynamicAnchor / $recursiveAnchor:true targets (the static
-     * fallback for $dynamicRef / $recursiveRef) */
+    /* $dynamicAnchor targets (the static fallback for $dynamicRef) */
     struct {
         const char *name;
         jv *target;
     } *dyn_anchors;
     size_t n_dyn_anchors, cap_dyn_anchors;
     jv *rec_anchor_target;
+    /* the resource model: every base URI this compile has materialized */
+    teptris_resource *resources;
+    size_t n_resources, cap_resources;
+    /* the resource the walk is currently inside */
+    jv *cur_root;        /* its root jv ("#" resolves here) */
+    const char *cur_abs; /* its base URI (NULL in local-only mode) */
+    const char *cur_dir; /* its fs dir (relative refs join against it) */
+    bool ref_exclusive;  /* draft-07-and-older: $ref ignores siblings */
+    char base_dir[1024]; /* fs dir of the main schema ("" = none) */
+    /* the base every node was pre-passed with: compile looks each
+     * node's base up here (pointers reach subtrees whose $id chain
+     * the document walk would otherwise miss) */
+    /* scratch accumulator for attach_self_scope */
+    struct sch_scope_entry *entry_acc;
+    size_t n_entry_acc, cap_entry_acc;
+    /* which standard vocabularies the dialect keeps (8.1.2: a custom
+     * metaschema's $vocabulary decides; absent = all of them) */
+    unsigned vocab_mask;
+    /* standard vocabulary gates (the core vocabulary is mandatory and
+ * never gated) */
+#define TEPTRIS_VOC_APPLICATOR 1u
+#define TEPTRIS_VOC_UNEVALUATED 2u
+#define TEPTRIS_VOC_VALIDATION 4u
+#define TEPTRIS_VOC_FORMAT 8u
+#define TEPTRIS_VOC_CONTENT 16u
+#define TEPTRIS_VOC_ALL 31u
+
+struct node_base {
+        const jv *node;
+        const char *abs;
+        const char *dir;
+        jv *root;
+        bool recursive;
+    } *node_bases;
+    size_t n_node_bases, cap_node_bases;
     char *err;
     size_t err_cap;
 } sctx;
+
+/* a materialized resource: a base URI naming a jv subtree */
+struct teptris_resource {
+    const char *abs; /* base URI (file://... or empty for local-only) */
+    jv *root;        /* the resource's root jv ("#" resolves here) */
+    sch_node *node;  /* compiled root (memo-resolved) */
+    bool recursive_anchor; /* $recursiveAnchor: true on the root */
+};
 
 /* the tagged value the validator walks: converted from a document's
  * DOM once per validate call, or synthesized (schema-side enum/const
@@ -230,6 +290,9 @@ sch_node *sch_resolve_pointer(sctx *c, const char *pointer);
 /* the shortest-roundtrip decimal view of a double: d = mant * 10^exp
  * with |mant| < 10^18; false for non-finite d */
 bool sch_decimal_of_double(double d, int64_t *mant, int *exp);
+
+/* refs.c: the resource loader used by $ref resolution */
+jv *sch_load_resource(sctx *c, const char *abs_uri);
 
 /* formats.c */
 /* the string-side format battery (the taplo parity set); datetimes

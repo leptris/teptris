@@ -189,8 +189,19 @@ int main(int argc, char **argv)
         teptris_schema *sch = NULL;
         char *diag = NULL;
         size_t dlen = 0;
-        teptris_status sst = teptris_schema_compile(stext, slen, &sch,
-                                                    &diag, &dlen);
+        /* the schema's directory backs relative $refs and $ids */
+        char base_dir[1024];
+        const char *slash = strrchr(schema_path, '/');
+        if (slash != NULL) {
+            size_t n = (size_t)(slash - schema_path);
+            if (n >= sizeof base_dir) n = sizeof base_dir - 1;
+            memcpy(base_dir, schema_path, n);
+            base_dir[n] = '\0';
+        } else {
+            base_dir[0] = '\0';
+        }
+        teptris_status sst = teptris_schema_compile_ex(
+            stext, slen, base_dir, strlen(base_dir), &sch, &diag, &dlen);
         free(stext);
         if (sst != TEPTRIS_OK) {
             fprintf(stderr, "teptris: bad schema %s: %.*s\n", schema_path,

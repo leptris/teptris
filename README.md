@@ -81,7 +81,7 @@ inside and silence on stdout/stderr.
 
 | check | standing |
 | --- | --- |
-| unit + corpus suites | 174/174 green (scalars, datetimes, table define-semantics, errors with line:col + byte spans, emit goldens incl. the canonical-form reference artifact, roundtrip property, schema validation: the 2020-12 practical subset + the four TOML/JSON policies + vendored cargo-like/pyproject-like manifests — [SCHEMAS.md](SCHEMAS.md)) |
+| unit + corpus suites | 196/196 green (scalars, datetimes, table define-semantics, errors with line:col + byte spans, emit goldens incl. the canonical-form reference artifact, roundtrip property, schema validation: the 2020-12 practical subset + tombi's Definition A suite at 1173/1173 + the four TOML/JSON policies + vendored cargo-like/pyproject-like manifests — [SCHEMAS.md](SCHEMAS.md)) |
 | roundtrip property | parse → emit → parse tree equality + emit byte-stability over the corpus |
 | ASAN | full suite green + fuzz smoke (truncations, mutations, random bytes) clean |
 | parse matrix vs C/C++ references | teptris 367–541 MB/s, fastest on every shape vs tomlc99, tomlc17, cpptoml, toml11, tomlplusplus (4.2–6.8× the best competitor, run 5, 2026-10-19) — `benchmarks/LEDGER.md` |

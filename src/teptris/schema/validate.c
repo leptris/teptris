@@ -43,11 +43,17 @@ typedef struct {
         size_t n_idx, cap_idx;
     } *frames;
     int n_frames, cap_frames;
-    /* dynamic-scope stack for $dynamicRef / $recursiveRef: the
-     * innermost anchor on the evaluation path wins */
+    /* dynamic-scope stack for $dynamicRef / $recursiveRef: one frame
+     * per applied schema object, in evaluation order. Each entry
+     * names its anchor and the frame owner (the applied object), so
+     * resolution walks RESOURCES outermost-first (2020-12 8.2.3.2:
+     * the outermost resource in the dynamic scope that defines the
+     * fragment wins, its first anchor in document order) */
     struct dyn_scope {
         const char *name;
         sch_node *node;
+        const jv *res;    /* the anchor's resource (nearest $id) */
+        sch_node *owner;  /* the applied object that entered it */
     } *scopes;
     int n_scopes, cap_scopes;
 } vctx;
@@ -313,8 +319,9 @@ static void frames_free(vctx *vc) {
 
 /* ------------------------------------------------- dynamic scopes -- */
 
-static bool scope_push(vctx *vc, const char *name, sch_node *node) {
-    if (name == NULL || node == NULL) return true;
+static bool scope_push(vctx *vc, const char *name, sch_node *node,
+                       const jv *res, sch_node *owner) {
+    if (name == NULL || node == NULL || owner == NULL) return true;
     if (vc->n_scopes == vc->cap_scopes) {
         vc->cap_scopes = vc->cap_scopes == 0 ? 16 : vc->cap_scopes * 2;
         void *ns = realloc(vc->scopes, vc->cap_scopes * sizeof(*vc->scopes));
@@ -323,14 +330,47 @@ static bool scope_push(vctx *vc, const char *name, sch_node *node) {
     }
     vc->scopes[vc->n_scopes].name = name;
     vc->scopes[vc->n_scopes].node = node;
+    vc->scopes[vc->n_scopes].res = res;
+    vc->scopes[vc->n_scopes].owner = owner;
     vc->n_scopes++;
     return true;
 }
 
-/* the innermost dynamic anchor for a name on the evaluation path */
+/* 2020-12 $dynamicRef: walk the RESOURCES of the evaluation path
+ * outermost-first (the resource of each applied object, in frame
+ * order); the first resource that DEFINES an identically-named
+ * $dynamicAnchor — the anchor's nearest-$id resource anywhere in the
+ * stack — wins, and its first matching anchor in document order is
+ * the target (2020-12 8.2.3.2 + appendix C) */
 static sch_node *scope_resolve(vctx *vc, const char *name) {
-    for (int i = vc->n_scopes - 1; i >= 0; i--) {
-        if (strcmp(vc->scopes[i].name, name) == 0) return vc->scopes[i].node;
+    for (int i = 0; i < vc->n_scopes; i++) {
+        const jv *res = vc->scopes[i].owner->res_id;
+        bool seen = false;
+        for (int k = 0; k < i; k++) {
+            if (vc->scopes[k].owner->res_id == res) {
+                seen = true;
+                break;
+            }
+        }
+        if (seen) continue;
+        for (int j = 0; j < vc->n_scopes; j++) {
+            if (vc->scopes[j].res != res) continue;
+            if (strcmp(vc->scopes[j].name, name) == 0) {
+                return vc->scopes[j].node;
+            }
+        }
+    }
+    return NULL;
+}
+
+/* 2019-09 $recursiveRef: the first resource on the evaluation path
+ * (outermost first) whose ROOT carries $recursiveAnchor: true; the
+ * target is that resource's root */
+static sch_node *scope_resolve_recursive(vctx *vc) {
+    for (int i = 0; i < vc->n_scopes; i++) {
+        if (vc->scopes[i].owner->recursive_anchor != NULL) {
+            return vc->scopes[i].owner;
+        }
     }
     return NULL;
 }
@@ -346,6 +386,15 @@ static bool sv_equal(const sch_svalue *a, const sch_svalue *b) {
          * equals a datetime text */
         int ad = a->kind >= SV_DATETIME;
         int bd = b->kind >= SV_DATETIME;
+        /* numeric identity per JSON Schema: an integer and a float
+         * with the same value are equal (bools stay distinct - their
+         * kinds differ, so they never reach this branch) */
+        if ((a->kind == SV_INT || a->kind == SV_FLOAT) &&
+            (b->kind == SV_INT || b->kind == SV_FLOAT)) {
+            long double av = a->kind == SV_INT ? (long double)a->i : (long double)a->f;
+            long double bv = b->kind == SV_INT ? (long double)b->i : (long double)b->f;
+            return av == bv;
+        }
         if ((ad || bd) && (a->kind == SV_STRING || b->kind == SV_STRING)) {
             const sch_svalue *dt = ad ? a : b;
             const sch_svalue *st = ad ? b : a;
@@ -676,12 +725,28 @@ static int sv_to_st(const sch_svalue *v) {
     switch (v->kind) {
     case SV_STRING: return ST_STRING;
     case SV_INT: return ST_INTEGER | ST_NUMBER;
-    case SV_FLOAT: return ST_NUMBER;
+    case SV_FLOAT:
+        /* a float with a zero fractional part is an integer (the
+         * 2020-12 rule the suite tests) */
+        return (v->f == v->f && v->f != INFINITY && v->f != -INFINITY &&
+                v->f == (double)(int64_t)v->f)
+                   ? ST_INTEGER | ST_NUMBER
+                   : ST_NUMBER;
     case SV_BOOL: return ST_BOOLEAN;
     case SV_TABLE: return ST_OBJECT;
     case SV_ARRAY: return ST_ARRAY;
     case SV_DATETIME: case SV_DATE: case SV_TIME: return ST_STRING;
+    case SV_NULL: return ST_NULL;
     default: return 0;
+    }
+}
+
+/* one application = one scope frame: every anchor inside the applied
+ * schema's own subtree is in scope below it, owned by this object */
+static void scope_frame_push(vctx *vc, sch_node *n) {
+    for (size_t i = 0; i < n->n_self_scope; i++) {
+        scope_push(vc, n->self_scope[i].name, n->self_scope[i].node,
+                   n->self_scope[i].res, n);
     }
 }
 
@@ -697,8 +762,7 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
      * scope for the instance path below it */
     frame_push(vc, v);
     int scopes_base = vc->n_scopes;
-    scope_push(vc, n->dynamic_anchor, n);
-    scope_push(vc, n->recursive_anchor, n);
+    scope_frame_push(vc, n);
 
     /* a dynamic $ref resolves through the innermost scope entered on
      * the evaluation path; the compile-resolved target is the static
@@ -706,7 +770,8 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
     if (n->dynamic_ref != NULL) {
         const char *name = n->dynamic_ref[0] == '#' ? n->dynamic_ref + 1
                                                     : n->dynamic_ref;
-        sch_node *target = scope_resolve(vc, name);
+        sch_node *target = n->dynamic_recursive ? scope_resolve_recursive(vc)
+                                                : scope_resolve(vc, name);
         if (target == NULL) target = n->dynamic_ref_target;
         if (target != NULL) {
             if (vc->ref_depth >= MAX_DEPTH) {
@@ -715,6 +780,7 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
                 vc->ref_depth++;
                 spush(vc, "$dynamicRef");
                 val(vc, target, v);
+                vc->n_scopes = scopes_base;
                 spop(vc);
                 vc->ref_depth--;
             }
@@ -731,8 +797,15 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
             vc->ref_depth++;
             spush(vc, "$ref");
             val(vc, n->ref, v);
+            vc->n_scopes = scopes_base;
             spop(vc);
             vc->ref_depth--;
+        }
+        /* draft 07 and older: the $ref replaces every sibling */
+        if (n->ref_only) {
+            vc->n_scopes = scopes_base;
+            frame_pop(vc);
+            return;
         }
     }
 
@@ -766,6 +839,9 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
         if (!sv_equal(cv, v)) {
             verr(vc, "value does not equal the constant");
         }
+    }
+    if (n->enum_empty) {
+        verr(vc, "value does not match the empty enum (nothing matches)");
     }
     if (n->n_enum > 0) {
         bool hit = false;

@@ -20,6 +20,8 @@ set(TEPTRIS_SOURCES
     teptris/emit/writer.c
     teptris/edit/edit.c
     teptris/schema/json_read.c
+    teptris/schema/refs.c
+    teptris/schema/metaschemas.c
     teptris/schema/regex.c
     teptris/schema/schema.c
     teptris/schema/formats.c
