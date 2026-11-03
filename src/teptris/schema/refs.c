@@ -38,7 +38,7 @@ jv *sch_load_resource(sctx *c, const char *abs_uri) {
         return NULL;
     }
     char jerr[160] = {0};
-    jv *root = json_read(&c->a, text, len, jerr, sizeof jerr);
+    jv *root = json_read(c->a, text, len, jerr, sizeof jerr);
     free(text);
     if (root == NULL) return NULL;
 
@@ -232,25 +232,6 @@ void teptris_uri_split(const char *uri, char *doc, size_t doc_cap,
 }
 
 /* -------------------------------------------------- file resources -- */
-
-static char *read_file_ascii(const char *path, size_t cap, size_t *out_len) {
-    FILE *f = fopen(path, "rb");
-    if (f == NULL) return NULL;
-    char *buf = malloc(cap + 1);
-    if (buf == NULL) {
-        fclose(f);
-        return NULL;
-    }
-    size_t n = fread(buf, 1, cap, f);
-    fclose(f);
-    if (n == 0) {
-        free(buf);
-        return NULL;
-    }
-    buf[n] = '\0';
-    *out_len = n;
-    return buf;
-}
 
 bool teptris_file_uri_to_path(const char *uri, char *path, size_t cap) {
     if (strncmp(uri, "file://", 7) == 0) {
