@@ -32,8 +32,17 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     teptris_schema *sch = NULL;
     char *diag = NULL;
     size_t diag_len = 0;
-    teptris_status st = teptris_schema_compile(schema_src, schema_len, &sch,
-                                               &diag, &diag_len);
+    /* every 8th input goes through compile_ex with a fixed base dir,
+     * exercising the resource-model path (file resources under the
+     * base are size-capped and never fetched from a network) */
+    teptris_status st;
+    if ((sel & 7) == 3) {
+        st = teptris_schema_compile_ex(schema_src, schema_len, ".", 1, &sch,
+                                       &diag, &diag_len);
+    } else {
+        st = teptris_schema_compile(schema_src, schema_len, &sch, &diag,
+                                    &diag_len);
+    }
     if (st != TEPTRIS_OK) {
         if (sch != NULL) {
             teptris_schema_free(sch);
