@@ -376,17 +376,11 @@ static void check_content(vctx *vc, const sch_node *n, const sch_svalue *v) {
 
 /* ------------------------------------------------------ multipleOf -- */
 
-static int64_t ipow10(int k) {
-    int64_t r = 1;
-    while (k-- > 0) r *= 10;
-    return r;
-}
-
-/* value / multipleOf, exactly where the decimal representations
- * allow it: mant * 10^exp on both sides with a 128-bit product, so
- * 0.3 is a true multiple of 0.1; the long-double fallback answers
- * the extreme exponent spreads and replaces the truncation trap the
- * plain division check had */
+/* value / multipleOf decided exactly on the decimal representations:
+ * value = vm * 10^ve, mult = mm * 10^me, and the ratio is an integer
+ * iff the mantissas divide once the 2s and 5s are moved across —
+ * plain int64 arithmetic, so it runs identically where __int128 does
+ * not exist (MSVC) and needs no floating division at all */
 static bool sch_mult_ok(const sch_node *n, const sch_svalue *v) {
     if (v->kind == SV_INT && n->mult_is_int) {
         return n->imult != 0 && v->i % n->imult == 0;
@@ -410,29 +404,38 @@ static bool sch_mult_ok(const sch_node *n, const sch_svalue *v) {
         mm = n->mult_mant;
         me = n->mult_exp;
     } else {
-        goto fallback;
+        return false;
     }
-    if (mm == 0) goto fallback;
-#if defined(__SIZEOF_INT128__)
-    {
-        int k = ve - me;
-        if (k >= -18 && k <= 18) {
-            __int128 num = (__int128)vm;
-            __int128 den = (__int128)mm;
-            if (k >= 0) {
-                num *= (__int128)ipow10(k);
-            } else {
-                den *= (__int128)ipow10(-k);
-            }
-            return num % den == 0;
-        }
+    if (mm == 0) return false;
+
+    /* strip the 2s and 5s out of the multiplier; the remainder is
+     * coprime to 10, so it must divide the mantissa itself */
+    int b = 0, c = 0;
+    while (mm % 2 == 0) {
+        mm /= 2;
+        b++;
     }
-#endif
-fallback:
-    {
-        long double q = (long double)fv / (long double)n->fmult;
-        return q == floorl(q);
+    while (mm % 5 == 0) {
+        mm /= 5;
+        c++;
     }
+
+    /* the numerator vm * 10^k (k = ve - me) carries 2^(k+v2) * 5^(k+v5) */
+    int k = ve - me;
+    uint64_t mag = vm < 0 ? (uint64_t)(-(vm + 1)) + 1 : (uint64_t)vm;
+    int u2 = 0, u5 = 0;
+    uint64_t m = mag;
+    while (m % 2 == 0 && u2 < 64) {
+        m /= 2;
+        u2++;
+    }
+    m = mag;
+    while (m % 5 == 0 && u5 < 64) {
+        m /= 5;
+        u5++;
+    }
+    if (k + u2 < b || k + u5 < c) return false;
+    return mag % (uint64_t)mm == 0;
 }
 
 static int sv_to_st(const sch_svalue *v) {
