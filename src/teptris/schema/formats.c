@@ -611,6 +611,24 @@ bool sch_format_string_check(int format, const char *s, size_t len,
     switch (format) {
     case FMT_DATE: return check_date(s, len);
     case FMT_DATETIME: return check_datetime(s, len);
+    case FMT_DATETIME_LOCAL: {
+        /* the local shape: full-date T HH:MM:SS[.frac], no offset */
+        if (len < 19 || !check_date(s, 10)) return false;
+        if (s[10] != 'T' && s[10] != 't') return false;
+        size_t used = check_hms(s + 11, len - 11);
+        if (used == 0) return false;
+        size_t pos = 11 + used;
+        if (pos < len && s[pos] == '.') {
+            size_t frac = 0;
+            pos++;
+            while (pos < len && is_digit(s[pos])) {
+                pos++;
+                frac++;
+            }
+            if (frac == 0) return false;
+        }
+        return pos == len;
+    }
     case FMT_TIME: {
         size_t used = check_hms(s, len);
         if (used == 0) return false;
@@ -625,6 +643,22 @@ bool sch_format_string_check(int format, const char *s, size_t len,
             if (frac != 6) return false; /* the crate's exact 6 digits */
         }
         return len > pos && check_offset(s + pos, len - pos) == len - pos;
+    }
+    case FMT_TIME_LOCAL: {
+        /* HH:MM:SS[.frac] with no offset (TOML's local time) */
+        size_t used = check_hms(s, len);
+        if (used == 0) return false;
+        size_t pos = used;
+        if (pos < len && s[pos] == '.') {
+            size_t frac = 0;
+            pos++;
+            while (pos < len && is_digit(s[pos])) {
+                pos++;
+                frac++;
+            }
+            if (frac == 0) return false;
+        }
+        return pos == len;
     }
     case FMT_EMAIL:
     case FMT_IDN_EMAIL: return check_email(s, len);

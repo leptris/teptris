@@ -95,10 +95,16 @@ static jv *resolve_local(sctx *c, const char *ref) {
         }
         return cur;
     }
-    /* plain-name fragment: an $anchor */
+    /* plain-name fragment: an $anchor or a $dynamicAnchor (a plain
+     * $ref to either behaves the same way) */
     for (size_t i = 0; i < c->n_anchors; i++) {
         if (strcmp(c->anchors[i].name, ref + 1) == 0) {
             return c->anchors[i].target;
+        }
+    }
+    for (size_t i = 0; i < c->n_dyn_anchors; i++) {
+        if (strcmp(c->dyn_anchors[i].name, ref + 1) == 0) {
+            return c->dyn_anchors[i].target;
         }
     }
     return NULL;
@@ -132,6 +138,26 @@ static void collect_anchors(sctx *c, jv *v) {
                 c->anchors[c->n_anchors].target = v;
                 c->n_anchors++;
             }
+            if (strcmp(k, "$dynamicAnchor") == 0 && jv_kind_of(val) == JV_STRING) {
+                if (c->n_dyn_anchors == c->cap_dyn_anchors) {
+                    c->cap_dyn_anchors =
+                        c->cap_dyn_anchors == 0 ? 8 : c->cap_dyn_anchors * 2;
+                    void *na = teptris_arena_alloc(
+                        c->a, c->cap_dyn_anchors * sizeof(*c->dyn_anchors));
+                    if (c->n_dyn_anchors > 0) {
+                        memcpy(na, c->dyn_anchors,
+                               c->n_dyn_anchors * sizeof(*c->dyn_anchors));
+                    }
+                    c->dyn_anchors = na;
+                }
+                c->dyn_anchors[c->n_dyn_anchors].name = jv_str(val);
+                c->dyn_anchors[c->n_dyn_anchors].target = v;
+                c->n_dyn_anchors++;
+            }
+            if (strcmp(k, "$recursiveAnchor") == 0 && jv_kind_of(val) == JV_BOOL &&
+                jv_bool(val) && c->rec_anchor_target == NULL) {
+                c->rec_anchor_target = v;
+            }
             collect_anchors(c, val);
         }
     } else if (jv_kind_of(v) == JV_ARRAY) {
@@ -157,6 +183,14 @@ static int format_kind(const char *name) {
     if (strcmp(name, "date-time") == 0) return FMT_DATETIME;
     if (strcmp(name, "date") == 0) return FMT_DATE;
     if (strcmp(name, "time") == 0) return FMT_TIME;
+    if (strcmp(name, "date-time-local") == 0 ||
+        strcmp(name, "partial-date-time") == 0) {
+        return FMT_DATETIME_LOCAL;
+    }
+    if (strcmp(name, "time-local") == 0 ||
+        strcmp(name, "partial-time") == 0) {
+        return FMT_TIME_LOCAL;
+    }
     if (strcmp(name, "email") == 0) return FMT_EMAIL;
     if (strcmp(name, "idn-email") == 0) return FMT_IDN_EMAIL;
     if (strcmp(name, "hostname") == 0) return FMT_HOSTNAME;
@@ -216,6 +250,28 @@ static bool compile_type(sctx *c, sch_node *n, jv *tv, const char *where) {
         return true;
     }
     sfail(c, "type must be a string or array of strings", where);
+    return false;
+}
+
+/* the suite writes count constraints as decimals ("maxLength": 3.0):
+ * a JSON number is valid there, so accept float tokens whose value is
+ * integral (a non-integral count cannot be satisfied; ignore it like
+ * an annotation would lie - reject the schema instead) */
+static bool count_value(sctx *c, jv *val, long *out) {
+    if (jv_kind_of(val) == JV_INT) {
+        *out = (long)jv_int(val);
+        return true;
+    }
+    if (jv_kind_of(val) == JV_NUM) {
+        double d = jv_num(val);
+        if (d != d || d != (double)(long)d) {
+            sfail(c, "count constraint must be an integer", NULL);
+            return false;
+        }
+        *out = (long)d;
+        return true;
+    }
+    sfail(c, "count constraint must be an integer", NULL);
     return false;
 }
 
@@ -293,23 +349,9 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
     sch_node *n = sch_node_new(c);
     memo_put(c, v, n);
 
-    const char *unsupported[] = {
-        "unevaluatedProperties", "unevaluatedItems", "$dynamicRef",
-        "$dynamicAnchor", "$recursiveRef", "$recursiveAnchor", NULL
-    };
-
     for (size_t i = 0; i < jv_member_count(v); i++) {
         const char *k = jv_member_key(v, i);
         jv *val = jv_member_val(v, i);
-
-        /* unsupported KNOWN keywords: reject (ignoring them would
-         * silently accept documents that should fail) */
-        for (int u = 0; unsupported[u] != NULL; u++) {
-            if (strcmp(k, unsupported[u]) == 0) {
-                sfail(c, "unsupported keyword", k);
-                return NULL;
-            }
-        }
 
         if (strcmp(k, "type") == 0) {
             if (!compile_type(c, n, val, k)) return NULL;
@@ -374,6 +416,75 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
             n->additional = sch_compile_node(c, val);
             if (n->additional == NULL && c->err[0] != '\0') return NULL;
             n->additional_set = true;
+        } else if (strcmp(k, "unevaluatedProperties") == 0) {
+            n->uneval_props = sch_compile_node(c, val);
+            if (n->uneval_props == NULL && c->err[0] != '\0') return NULL;
+        } else if (strcmp(k, "unevaluatedItems") == 0) {
+            n->uneval_items = sch_compile_node(c, val);
+            if (n->uneval_items == NULL && c->err[0] != '\0') return NULL;
+        } else if (strcmp(k, "$dynamicAnchor") == 0 &&
+                   jv_kind_of(val) == JV_STRING) {
+            n->dynamic_anchor = jv_str(val);
+        } else if (strcmp(k, "$recursiveAnchor") == 0 &&
+                   jv_kind_of(val) == JV_BOOL && jv_bool(val)) {
+            n->recursive_anchor = "$";
+        } else if (strcmp(k, "$dynamicRef") == 0 ||
+                   strcmp(k, "$recursiveRef") == 0) {
+            if (jv_kind_of(val) != JV_STRING) {
+                sfail(c, "$dynamicRef/$recursiveRef must be a string", k);
+                return NULL;
+            }
+            const char *r = jv_str(val);
+            bool recursive = strcmp(k, "$recursiveRef") == 0;
+            /* $recursiveRef is always the bare "#"; a pointer-form
+             * $dynamicRef ("#/pointer") does not participate in
+             * dynamic scope resolution - the spec and the suite both
+             * read it exactly like a plain $ref - so only the
+             * plain-name fragment form reaches the scope machinery */
+            if (r[0] != '#' || (recursive && r[1] != '\0') ||
+                (!recursive && r[1] == '\0')) {
+                sfail(c,
+                      "dynamic $refs are plain-name fragments "
+                      "(\"#anchor\") or pointers (\"#/a/b\")",
+                      r);
+                return NULL;
+            }
+            if (!recursive && strchr(r + 1, '/') != NULL) {
+                n->ref = sch_resolve_pointer(c, r);
+                if (n->ref == NULL) {
+                    sfail(c, "unresolvable $dynamicRef", r);
+                    return NULL;
+                }
+                continue;
+            }
+            /* the static fallback: the doc-wide anchor collection;
+             * the innermost scope wins at validation time */
+            jv *target = NULL;
+            if (recursive) {
+                target = c->rec_anchor_target != NULL
+                             ? c->rec_anchor_target
+                             : c->root;
+            } else {
+                for (size_t d = 0; d < c->n_dyn_anchors && target == NULL; d++) {
+                    if (strcmp(c->dyn_anchors[d].name, r + 1) == 0) {
+                        target = c->dyn_anchors[d].target;
+                    }
+                }
+                if (target == NULL) {
+                    sfail(c, "unresolvable $dynamicRef (no matching "
+                             "$dynamicAnchor)",
+                          r);
+                    return NULL;
+                }
+            }
+            n->dynamic_ref = jv_str(val);
+            n->dynamic_ref_target = sch_compile_node(c, target);
+            if (n->dynamic_ref_target == NULL && c->err[0] != '\0') {
+                return NULL;
+            }
+        } else if (strcmp(k, "contentSchema") == 0) {
+            n->content_schema = sch_compile_node(c, val);
+            if (n->content_schema == NULL && c->err[0] != '\0') return NULL;
         } else if (strcmp(k, "required") == 0 &&
                    jv_kind_of(val) == JV_ARRAY) {
             size_t cnt = jv_item_count(val);
@@ -395,13 +506,11 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
         } else if (strcmp(k, "propertyNames") == 0) {
             n->prop_names = sch_compile_node(c, val);
             if (n->prop_names == NULL && c->err[0] != '\0') return NULL;
-        } else if (strcmp(k, "minProperties") == 0 &&
-                   jv_kind_of(val) == JV_INT) {
-            n->min_props = (long)jv_int(val);
+        } else if (strcmp(k, "minProperties") == 0) {
+            if (!count_value(c, val, &n->min_props)) return NULL;
             n->has_min_props = true;
-        } else if (strcmp(k, "maxProperties") == 0 &&
-                   jv_kind_of(val) == JV_INT) {
-            n->max_props = (long)jv_int(val);
+        } else if (strcmp(k, "maxProperties") == 0) {
+            if (!count_value(c, val, &n->max_props)) return NULL;
             n->has_max_props = true;
         } else if (strcmp(k, "dependencies") == 0 &&
                    jv_kind_of(val) == JV_OBJECT) {
@@ -493,20 +602,20 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
             n->contains = sch_compile_node(c, val);
             if (n->contains == NULL && c->err[0] != '\0') return NULL;
             n->has_contains = true;
-        } else if (strcmp(k, "minContains") == 0 && jv_kind_of(val) == JV_INT) {
-            n->min_contains = (long)jv_int(val);
+        } else if (strcmp(k, "minContains") == 0) {
+            if (!count_value(c, val, &n->min_contains)) return NULL;
             n->has_min_contains = true;
-        } else if (strcmp(k, "maxContains") == 0 && jv_kind_of(val) == JV_INT) {
-            n->max_contains = (long)jv_int(val);
+        } else if (strcmp(k, "maxContains") == 0) {
+            if (!count_value(c, val, &n->max_contains)) return NULL;
             n->has_max_contains = true;
         } else if (strcmp(k, "uniqueItems") == 0 && jv_kind_of(val) == JV_BOOL) {
             n->unique_items = jv_bool(val);
             n->has_unique = true;
-        } else if (strcmp(k, "minItems") == 0 && jv_kind_of(val) == JV_INT) {
-            n->min_items = (long)jv_int(val);
+        } else if (strcmp(k, "minItems") == 0) {
+            if (!count_value(c, val, &n->min_items)) return NULL;
             n->has_min_items = true;
-        } else if (strcmp(k, "maxItems") == 0 && jv_kind_of(val) == JV_INT) {
-            n->max_items = (long)jv_int(val);
+        } else if (strcmp(k, "maxItems") == 0) {
+            if (!count_value(c, val, &n->max_items)) return NULL;
             n->has_max_items = true;
         } else if (strcmp(k, "pattern") == 0 && jv_kind_of(val) == JV_STRING) {
             char rerr[128] = {0};
@@ -516,11 +625,11 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
                 sfail(c, rerr[0] != '\0' ? rerr : "invalid pattern", k);
                 return NULL;
             }
-        } else if (strcmp(k, "minLength") == 0 && jv_kind_of(val) == JV_INT) {
-            n->min_length = (long)jv_int(val);
+        } else if (strcmp(k, "minLength") == 0) {
+            if (!count_value(c, val, &n->min_length)) return NULL;
             n->has_min_length = true;
-        } else if (strcmp(k, "maxLength") == 0 && jv_kind_of(val) == JV_INT) {
-            n->max_length = (long)jv_int(val);
+        } else if (strcmp(k, "maxLength") == 0) {
+            if (!count_value(c, val, &n->max_length)) return NULL;
             n->has_max_length = true;
         } else if (strcmp(k, "format") == 0 && jv_kind_of(val) == JV_STRING) {
             n->format = format_kind(jv_str(val));

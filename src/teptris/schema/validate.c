@@ -30,6 +30,26 @@ typedef struct {
     char sseg_buf[64][64];
     int sdepth;
     int truncated;
+    /* annotation frames (2020-12 unevaluated* semantics): one per
+     * schema-object application; a child application on the SAME
+     * instance merges up into its parent at exit (in-place
+     * applicators), cousins and different-instance children never
+     * do; trials restore the merge target on failure */
+    struct eval_frame {
+        const sch_svalue *inst;
+        const char **keys;
+        size_t n_keys, cap_keys;
+        size_t *idx;
+        size_t n_idx, cap_idx;
+    } *frames;
+    int n_frames, cap_frames;
+    /* dynamic-scope stack for $dynamicRef / $recursiveRef: the
+     * innermost anchor on the evaluation path wins */
+    struct dyn_scope {
+        const char *name;
+        sch_node *node;
+    } *scopes;
+    int n_scopes, cap_scopes;
 } vctx;
 
 /* ---------------------------------------------------------- output -- */
@@ -168,6 +188,142 @@ static void verr(vctx *vc, const char *fmt, ...) {
     vc->n_errors++;
 }
 
+/* ------------------------------------------- annotation frames (2020-12) */
+
+static bool frame_grow(vctx *vc) {
+    if (vc->n_frames == vc->cap_frames) {
+        vc->cap_frames = vc->cap_frames == 0 ? 16 : vc->cap_frames * 2;
+        void *nf = realloc(vc->frames, vc->cap_frames * sizeof(*vc->frames));
+        if (nf == NULL) return false;
+        vc->frames = nf;
+    }
+    return true;
+}
+
+static bool frame_push(vctx *vc, const sch_svalue *v) {
+    if (!frame_grow(vc)) return false;
+    struct eval_frame *f = &vc->frames[vc->n_frames++];
+    memset(f, 0, sizeof(*f));
+    f->inst = v;
+    return true;
+}
+
+/* merge this frame's annotations into the parent (bubbling up through
+ * an in-place applicator); answers false when there is no parent or
+ * the parent annotated a different instance (cousins/descendants) */
+static void frame_merge_up(vctx *vc) {
+    if (vc->n_frames < 2) return;
+    struct eval_frame *f = &vc->frames[vc->n_frames - 1];
+    struct eval_frame *p = &vc->frames[vc->n_frames - 2];
+    if (p->inst != f->inst) return;
+    if (f->n_keys > 0) {
+        if (p->n_keys + f->n_keys > p->cap_keys) {
+            size_t want = p->cap_keys == 0 ? 8 : p->cap_keys;
+            while (want < p->n_keys + f->n_keys) want *= 2;
+            void *nk = realloc(p->keys, want * sizeof(*p->keys));
+            if (nk == NULL) return;
+            p->keys = nk;
+            p->cap_keys = want;
+        }
+        memcpy(p->keys + p->n_keys, f->keys, f->n_keys * sizeof(*f->keys));
+        p->n_keys += f->n_keys;
+    }
+    if (f->n_idx > 0) {
+        if (p->n_idx + f->n_idx > p->cap_idx) {
+            size_t want = p->cap_idx == 0 ? 8 : p->cap_idx;
+            while (want < p->n_idx + f->n_idx) want *= 2;
+            void *ni = realloc(p->idx, want * sizeof(*p->idx));
+            if (ni == NULL) return;
+            p->idx = ni;
+            p->cap_idx = want;
+        }
+        memcpy(p->idx + p->n_idx, f->idx, f->n_idx * sizeof(*f->idx));
+        p->n_idx += f->n_idx;
+    }
+}
+
+static bool frame_key_seen(const struct eval_frame *f, const char *key) {
+    for (size_t i = 0; i < f->n_keys; i++) {
+        if (strcmp(f->keys[i], key) == 0) return true;
+    }
+    return false;
+}
+
+static bool frame_idx_seen(const struct eval_frame *f, size_t idx) {
+    for (size_t i = 0; i < f->n_idx; i++) {
+        if (f->idx[i] == idx) return true;
+    }
+    return false;
+}
+
+static void frame_add_key(vctx *vc, const char *key) {
+    if (vc->n_frames == 0) return;
+    struct eval_frame *f = &vc->frames[vc->n_frames - 1];
+    if (frame_key_seen(f, key)) return;
+    if (f->n_keys == f->cap_keys) {
+        f->cap_keys = f->cap_keys == 0 ? 8 : f->cap_keys * 2;
+        void *nk = realloc(f->keys, f->cap_keys * sizeof(*f->keys));
+        if (nk == NULL) return;
+        f->keys = nk;
+    }
+    f->keys[f->n_keys++] = key;
+}
+
+static void frame_add_idx(vctx *vc, size_t idx) {
+    if (vc->n_frames == 0) return;
+    struct eval_frame *f = &vc->frames[vc->n_frames - 1];
+    if (frame_idx_seen(f, idx)) return;
+    if (f->n_idx == f->cap_idx) {
+        f->cap_idx = f->cap_idx == 0 ? 8 : f->cap_idx * 2;
+        void *ni = realloc(f->idx, f->cap_idx * sizeof(*f->idx));
+        if (ni == NULL) return;
+        f->idx = ni;
+    }
+    f->idx[f->n_idx++] = idx;
+}
+
+/* drop the annotations a trial contributed to its merge target (the
+ * parent frame): failed anyOf/oneOf branches and the not/if trials
+ * annotate nothing */
+static void frame_truncate_to(vctx *vc, size_t n_keys, size_t n_idx) {
+    if (vc->n_frames < 1) return;
+    struct eval_frame *f = &vc->frames[vc->n_frames - 1];
+    if (f->n_keys > n_keys) f->n_keys = n_keys;
+    if (f->n_idx > n_idx) f->n_idx = n_idx;
+}
+
+static void frames_free(vctx *vc) {
+    for (int i = 0; i < vc->n_frames; i++) {
+        free(vc->frames[i].keys);
+        free(vc->frames[i].idx);
+    }
+    free(vc->frames);
+}
+
+/* ------------------------------------------------- dynamic scopes -- */
+
+static bool scope_push(vctx *vc, const char *name, sch_node *node) {
+    if (name == NULL || node == NULL) return true;
+    if (vc->n_scopes == vc->cap_scopes) {
+        vc->cap_scopes = vc->cap_scopes == 0 ? 16 : vc->cap_scopes * 2;
+        void *ns = realloc(vc->scopes, vc->cap_scopes * sizeof(*vc->scopes));
+        if (ns == NULL) return false;
+        vc->scopes = ns;
+    }
+    vc->scopes[vc->n_scopes].name = name;
+    vc->scopes[vc->n_scopes].node = node;
+    vc->n_scopes++;
+    return true;
+}
+
+/* the innermost dynamic anchor for a name on the evaluation path */
+static sch_node *scope_resolve(vctx *vc, const char *name) {
+    for (int i = vc->n_scopes - 1; i >= 0; i--) {
+        if (strcmp(vc->scopes[i].name, name) == 0) return vc->scopes[i].node;
+    }
+    return NULL;
+}
+
 /* --------------------------------------------------- value equality -- */
 
 static bool sv_equal(const sch_svalue *a, const sch_svalue *b) {
@@ -239,21 +395,57 @@ static bool sv_equal(const sch_svalue *a, const sch_svalue *b) {
 static sch_svalue *jv_to_sv(vctx *vc, jv *v);
 static void val(vctx *vc, sch_node *n, const sch_svalue *v);
 
+/* trial: does n accept v? Failed trials contribute no errors AND no
+ * annotations; successful anyOf/oneOf branches bubble theirs up */
 static bool passes(vctx *vc, sch_node *n, const sch_svalue *v) {
     int save_pings = vc->pings;
     size_t save_n = vc->n;
     int save_depth = vc->sdepth;
+    size_t keys_before = 0, idx_before = 0;
+    if (vc->n_frames > 0) {
+        keys_before = vc->frames[vc->n_frames - 1].n_keys;
+        idx_before = vc->frames[vc->n_frames - 1].n_idx;
+    }
     vc->mute++;
     val(vc, n, v);
     vc->mute--;
-    if (vc->pings == save_pings) {
-        return true;
+    bool ok = vc->pings == save_pings;
+    /* the trial's pings were its own private signal: nested oneOf/
+     * anyOf/not/if trials legitimately produced some without the
+     * branch failing - consume them so an OUTER trial sees only what
+     * this branch really contributed */
+    vc->pings = save_pings;
+    if (!ok) {
+        /* discard the trial's errors and its annotations */
+        vc->n = save_n;
+        if (vc->buf != NULL) vc->buf[vc->n] = '\0';
+        vc->sdepth = save_depth;
+        frame_truncate_to(vc, keys_before, idx_before);
     }
-    /* discard the trial's errors: rewind the buffer to save_n */
+    return ok;
+}
+
+/* not/if trials: the branch runs for the verdict only - its
+ * annotations are discarded whether it passed or failed */
+static bool passes_annot_free(vctx *vc, sch_node *n, const sch_svalue *v) {
+    int save_pings = vc->pings;
+    size_t save_n = vc->n;
+    int save_depth = vc->sdepth;
+    size_t keys_before = 0, idx_before = 0;
+    if (vc->n_frames > 0) {
+        keys_before = vc->frames[vc->n_frames - 1].n_keys;
+        idx_before = vc->frames[vc->n_frames - 1].n_idx;
+    }
+    bool ok;
+    vc->mute++;
+    ok = (val(vc, n, v), vc->pings == save_pings);
+    vc->mute--;
+    vc->pings = save_pings; /* consumed: the signal was private */
     vc->n = save_n;
     if (vc->buf != NULL) vc->buf[vc->n] = '\0';
     vc->sdepth = save_depth;
-    return false;
+    frame_truncate_to(vc, keys_before, idx_before);
+    return ok;
 }
 
 static size_t cp_count(const char *s, size_t len) {
@@ -271,14 +463,18 @@ static size_t cp_count(const char *s, size_t len) {
     return count;
 }
 
-/* RFC 3339 shapes for the TOML datetime kinds live in formats.c; the
- * walk only decides whether a kind participates in a format (policy
- * 3) and hands plain strings to the format battery */
+/* the TOML-native kind table (tombi's named formats made explicit):
+ * an offset datetime satisfies date-time and only date-time; a local
+ * datetime satisfies date-time-local; a local time satisfies
+ * time-local (TOML has no offset time); a date satisfies date */
 static bool format_ok(vctx *vc, int format, const sch_svalue *v) {
     if (format == FMT_NONE) return true;
     if (v->kind == SV_DATE) return format == FMT_DATE;
-    if (v->kind == SV_TIME) return format == FMT_TIME;
-    if (v->kind == SV_DATETIME) return format == FMT_DATETIME;
+    if (v->kind == SV_TIME) return format == FMT_TIME_LOCAL;
+    if (v->kind == SV_DATETIME) {
+        return v->has_offset ? format == FMT_DATETIME
+                             : format == FMT_DATETIME_LOCAL;
+    }
     if (v->kind != SV_STRING) return format == FMT_NONE;
     return sch_format_string_check(format, v->str, v->str_len, vc->scratch);
 }
@@ -312,6 +508,33 @@ static int b64_val(char c) {
     return -1;
 }
 
+/* decode base64 text into the scratch arena; answers the length and
+ * NULL when the text is not valid base64 */
+static char *b64_decode(vctx *vc, const char *text, size_t tlen,
+                        size_t *out_len) {
+    if (!str_is_base64(text, tlen)) return NULL;
+    size_t dn = tlen / 4 * 3;
+    if (tlen > 0 && text[tlen - 1] == '=') dn--;
+    if (tlen > 1 && text[tlen - 2] == '=') dn--;
+    char *out = teptris_arena_alloc(vc->scratch, dn + 1);
+    size_t o = 0;
+    int acc = 0, bits = 0;
+    for (size_t i = 0; i < tlen && o < dn; i++) {
+        if (text[i] == '=') break;
+        int d = b64_val(text[i]);
+        if (d < 0) break;
+        acc = (acc << 6) | d;
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            out[o++] = (char)((acc >> bits) & 0xFF);
+        }
+    }
+    out[o] = '\0';
+    *out_len = o;
+    return out;
+}
+
 /* contentEncoding/contentMediaType, the taplo parity pair: base64 is
  * the one encoding checked (and decoded for the media step),
  * application/json the one media type parsed; unknown names on either
@@ -328,49 +551,49 @@ static void check_content(vctx *vc, const sch_node *n, const sch_svalue *v) {
     }
     if (n->content_media_type == NULL ||
         strcmp(n->content_media_type, "application/json") != 0) {
+        /* no media interpretation: contentSchema sees the decoded
+         * text when an encoding was applied, the raw string when not */
+        if (n->content_schema != NULL) {
+            const char *payload = text;
+            size_t plen = tlen;
+            char *out = NULL;
+            if (b64 && str_is_base64(text, tlen)) {
+                out = b64_decode(vc, text, tlen, &plen);
+                payload = out;
+            }
+            if (payload != NULL) {
+                sch_svalue sv;
+                memset(&sv, 0, sizeof sv);
+                sv.kind = SV_STRING;
+                sv.str = payload;
+                sv.str_len = plen;
+                spush(vc, "contentSchema");
+                val(vc, n->content_schema, &sv);
+                spop(vc);
+            }
+        }
         return; /* unknown media names: annotation */
     }
     const char *payload = text;
     size_t plen = tlen;
     if (b64) {
-        size_t dn = tlen / 4 * 3;
-        if (tlen > 0 && text[tlen - 1] == '=') dn--;
-        if (tlen > 1 && text[tlen - 2] == '=') dn--;
-        char *out = teptris_arena_alloc(vc->scratch, dn + 1);
-        size_t o = 0;
-        int acc = 0, bits = 0;
-        for (size_t i = 0; i < tlen && o < dn; i++) {
-            if (text[i] == '=') break;
-            int d = b64_val(text[i]);
-            if (d < 0) break;
-            acc = (acc << 6) | d;
-            bits += 6;
-            if (bits >= 8) {
-                bits -= 8;
-                out[o++] = (char)((acc >> bits) & 0xFF);
-            }
-        }
-        /* the media check runs on the decoded text only when it is
-         * UTF-8 (the crate skips the check otherwise) */
-        bool utf8 = true;
-        for (size_t i = 0; i < o && utf8; i++) {
-            unsigned char b = (unsigned char)out[i];
-            if (b < 0x80) continue;
-            int need = b < 0xE0 ? 1 : b < 0xF0 ? 2 : 3;
-            if (i + need >= o || (b & 0xC0) != 0xC0) utf8 = false;
-            for (int k = 1; k <= need && utf8; k++) {
-                if (((unsigned char)out[i + k] & 0xC0) != 0x80) utf8 = false;
-            }
-            i += need;
-        }
-        if (!utf8) return;
-        out[o] = '\0';
-        payload = out;
-        plen = o;
+        /* the media check runs on the decoded text only when it
+         * decodes (the crate skips the check otherwise) */
+        payload = b64_decode(vc, text, tlen, &plen);
+        if (payload == NULL) return;
     }
     char jerr[64] = {0};
-    if (json_read(vc->scratch, payload, plen, jerr, sizeof jerr) == NULL) {
+    jv *parsed = json_read(vc->scratch, payload, plen, jerr, sizeof jerr);
+    if (parsed == NULL) {
         verr(vc, "string is not valid JSON (contentMediaType)");
+        return;
+    }
+    if (n->content_schema != NULL) {
+        /* contentSchema asserts the parsed value (the media type's
+         * interpretation of the decoded content) */
+        spush(vc, "contentSchema");
+        val(vc, n->content_schema, jv_to_sv(vc, parsed));
+        spop(vc);
     }
 }
 
@@ -458,6 +681,35 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
         return;
     }
 
+    /* one annotation frame per application; a $dynamicAnchor /
+     * $recursiveAnchor on this schema object enters the dynamic
+     * scope for the instance path below it */
+    frame_push(vc, v);
+    int scopes_base = vc->n_scopes;
+    scope_push(vc, n->dynamic_anchor, n);
+    scope_push(vc, n->recursive_anchor, n);
+
+    /* a dynamic $ref resolves through the innermost scope entered on
+     * the evaluation path; the compile-resolved target is the static
+     * fallback */
+    if (n->dynamic_ref != NULL) {
+        const char *name = n->dynamic_ref[0] == '#' ? n->dynamic_ref + 1
+                                                    : n->dynamic_ref;
+        sch_node *target = scope_resolve(vc, name);
+        if (target == NULL) target = n->dynamic_ref_target;
+        if (target != NULL) {
+            if (vc->ref_depth >= MAX_DEPTH) {
+                verr(vc, "cyclic dynamic $ref recursion");
+            } else {
+                vc->ref_depth++;
+                spush(vc, "$dynamicRef");
+                val(vc, target, v);
+                spop(vc);
+                vc->ref_depth--;
+            }
+        }
+    }
+
     if (n->ref != NULL) {
         /* a $ref cycle that consumes no document structure (a schema
          * that is its own ref target) would loop forever; legal
@@ -475,6 +727,9 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
 
     if (n->is_false) {
         verr(vc, "no value is allowed here (the false schema)");
+        vc->n_scopes = scopes_base;
+        frame_merge_up(vc);
+        vc->n_frames--;
         return;
     }
 
@@ -594,7 +849,9 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
                         matched_known = true;
                         spush_named(vc, "properties", key);
                         path_push(vc, key);
+                        int p0 = vc->pings;
                         val(vc, n->props[p].schema, mv);
+                        if (vc->pings == p0) frame_add_key(vc, key);
                         path_pop(vc);
                         spop(vc);
                         break;
@@ -606,7 +863,9 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
                     matched_known = true;
                     spush(vc, "patternProperties");
                     path_push(vc, key);
+                    int p0 = vc->pings;
                     val(vc, n->pprops[p].schema, mv);
+                    if (vc->pings == p0) frame_add_key(vc, key);
                     path_pop(vc);
                     spop(vc);
                 }
@@ -618,7 +877,9 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
                     verr(vc, "unknown property '%s' (additionalProperties is false)",
                          key);
                 } else {
+                    int p0 = vc->pings;
                     val(vc, n->additional, mv);
+                    if (vc->pings == p0) frame_add_key(vc, key);
                 }
                 path_pop(vc);
                 spop(vc);
@@ -697,13 +958,17 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
                 if (i < n->n_prefix) {
                     spush(vc, "prefixItems");
                     path_push_idx(vc, (long)i);
+                    int p0 = vc->pings;
                     val(vc, n->prefix[i], v->items[i]);
+                    if (vc->pings == p0) frame_add_idx(vc, i);
                     path_pop(vc);
                     spop(vc);
                 } else if (n->items != NULL) {
                     spush(vc, "items");
                     path_push_idx(vc, (long)i);
+                    int p0 = vc->pings;
                     val(vc, n->items, v->items[i]);
+                    if (vc->pings == p0) frame_add_idx(vc, i);
                     path_pop(vc);
                     spop(vc);
                 } else if (n->add_items != NULL) {
@@ -713,7 +978,9 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
                         verr(vc, "array has items beyond the tuple "
                                  "(additionalItems is false)");
                     } else {
+                        int p0 = vc->pings;
                         val(vc, n->add_items, v->items[i]);
+                        if (vc->pings == p0) frame_add_idx(vc, i);
                     }
                     path_pop(vc);
                     spop(vc);
@@ -728,7 +995,9 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
                     verr(vc, "array has items beyond the tuple "
                              "(additionalItems is false)");
                 } else {
+                    int p0 = vc->pings;
                     val(vc, n->add_items, v->items[i]);
+                    if (vc->pings == p0) frame_add_idx(vc, i);
                 }
                 path_pop(vc);
                 spop(vc);
@@ -737,12 +1006,22 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
         if (n->has_contains && n->contains != NULL) {
             long hits = 0;
             for (size_t i = 0; i < v->n_items; i++) {
-                if (passes(vc, n->contains, v->items[i])) hits++;
+                if (passes(vc, n->contains, v->items[i])) {
+                    hits++;
+                }
             }
             long min = n->has_min_contains ? n->min_contains : 1;
             long max = n->has_max_contains ? n->max_contains : (long)v->n_items;
             if (hits < min) verr(vc, "fewer matching items than minContains");
             if (hits > max) verr(vc, "more matching items than maxContains");
+            /* a successful contains annotates the matching indices */
+            if (hits >= min && hits <= max) {
+                for (size_t i = 0; i < v->n_items; i++) {
+                    if (passes(vc, n->contains, v->items[i])) {
+                        frame_add_idx(vc, i);
+                    }
+                }
+            }
         }
     }
 
@@ -756,7 +1035,9 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
     }
     if (n->n_any > 0) {
         bool ok = false;
-        for (size_t i = 0; i < n->n_any && !ok; i++) {
+        /* every branch is tried: a successful branch's annotations
+         * bubble up even when an earlier branch already passed */
+        for (size_t i = 0; i < n->n_any; i++) {
             if (passes(vc, n->any_of[i], v)) ok = true;
         }
         if (!ok) verr(vc, "does not match any of the %zu anyOf schemas",
@@ -773,11 +1054,13 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
         }
     }
     if (n->_not != NULL) {
-        if (passes(vc, n->_not, v)) {
+        if (passes_annot_free(vc, n->_not, v)) {
             verr(vc, "must not match the not-schema");
         }
     }
     if (n->if_s != NULL) {
+        /* the if-trial's annotations are retained (the suite: an if
+         * without then/else still evaluates what it matched) */
         bool cond = passes(vc, n->if_s, v);
         if (cond && n->then_s != NULL) {
             spush(vc, "then");
@@ -789,6 +1072,50 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
             spop(vc);
         }
     }
+
+    /* unevaluatedProperties/Items: evaluated LAST against this
+     * application's own frame (adjacent keywords plus what bubbled
+     * up through in-place applicators); what they apply to then
+     * annotates the frame for any enclosing unevaluated* */
+    if (n->uneval_props != NULL && v->kind == SV_TABLE) {
+        struct eval_frame *f = &vc->frames[vc->n_frames - 1];
+        for (size_t m = 0; m < v->n_members; m++) {
+            const char *key = v->members[m].key;
+            if (frame_key_seen(f, key)) continue;
+            spush(vc, "unevaluatedProperties");
+            path_push(vc, key);
+            if (n->uneval_props->is_false) {
+                verr(vc, "unevaluated property '%s' is not allowed", key);
+            } else {
+                int p0 = vc->pings;
+                val(vc, n->uneval_props, v->members[m].val);
+                if (vc->pings == p0) frame_add_key(vc, key);
+            }
+            path_pop(vc);
+            spop(vc);
+        }
+    }
+    if (n->uneval_items != NULL && v->kind == SV_ARRAY) {
+        struct eval_frame *f = &vc->frames[vc->n_frames - 1];
+        for (size_t i = 0; i < v->n_items; i++) {
+            if (frame_idx_seen(f, i)) continue;
+            spush(vc, "unevaluatedItems");
+            path_push_idx(vc, (long)i);
+            if (n->uneval_items->is_false) {
+                verr(vc, "array has an unevaluated item at index %zu", i);
+            } else {
+                int p0 = vc->pings;
+                val(vc, n->uneval_items, v->items[i]);
+                if (vc->pings == p0) frame_add_idx(vc, i);
+            }
+            path_pop(vc);
+            spop(vc);
+        }
+    }
+
+    vc->n_scopes = scopes_base;
+    frame_merge_up(vc);
+    vc->n_frames--;
 }
 
 /* -------------------------------------------------- DOM conversion -- */
@@ -833,6 +1160,7 @@ static sch_svalue *node_to_sv(teptris_arena *scratch, const teptris_node *node) 
         sch_svalue *v = sv_new(scratch, SV_DATETIME);
         teptris_datetime dt;
         teptris_node_datetime(node, &dt);
+        v->has_offset = kind == TEPTRIS_DATETIME_OFFSET;
         /* the RFC 3339 text: equality + format checks run on the
          * canonical text the emitter would produce */
         char *buf = teptris_arena_alloc(scratch, 64);
@@ -1012,6 +1340,8 @@ TEPTRIS_API teptris_status teptris_schema_validate_doc(
         *out_len = out_n;
     }
     if (vc.buf != NULL) free(vc.buf);
+    frames_free(&vc);
+    free(vc.scopes);
     teptris_arena_destroy(&scratch);
     return st;
 }

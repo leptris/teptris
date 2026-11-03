@@ -28,6 +28,8 @@ enum {
     FMT_DATETIME,
     FMT_DATE,
     FMT_TIME,
+    FMT_DATETIME_LOCAL,
+    FMT_TIME_LOCAL,
     /* the taplo parity set: every format the jsonschema crate (the
      * engine behind taplo) asserts on; names outside this set are
      * annotations on both sides */
@@ -104,6 +106,14 @@ struct sch_node {
     bool items_set;
     sch_node *add_items; /* additionalItems: applies beyond prefix */
     bool add_items_set;
+    sch_node *uneval_props; /* unevaluatedProperties: frame-local */
+    sch_node *uneval_items; /* unevaluatedItems: frame-local */
+    sch_node *content_schema; /* contentSchema: asserts decoded content */
+    const char *dynamic_anchor;   /* $dynamicAnchor name carried here */
+    const char *recursive_anchor; /* "$" when $recursiveAnchor is true */
+    const char *dynamic_ref;      /* "#name" fragment for
+                                   * $dynamicRef / $recursiveRef */
+    sch_node *dynamic_ref_target; /* compile-resolved static fallback */
     sch_node *contains;
     long min_contains, max_contains;
     bool has_contains, has_min_contains, has_max_contains;
@@ -166,6 +176,14 @@ typedef struct {
         jv *target;
     } *anchors;
     size_t n_anchors, cap_anchors;
+    /* $dynamicAnchor / $recursiveAnchor:true targets (the static
+     * fallback for $dynamicRef / $recursiveRef) */
+    struct {
+        const char *name;
+        jv *target;
+    } *dyn_anchors;
+    size_t n_dyn_anchors, cap_dyn_anchors;
+    jv *rec_anchor_target;
     char *err;
     size_t err_cap;
 } sctx;
@@ -203,6 +221,7 @@ struct sch_svalue {
     size_t n_members;
     sch_svalue **items;
     size_t n_items;
+    bool has_offset; /* offset datetimes only (kind rules for formats) */
 };
 
 /* schema.c */
