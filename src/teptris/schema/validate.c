@@ -413,6 +413,7 @@ static bool sch_mult_ok(const sch_node *n, const sch_svalue *v) {
         goto fallback;
     }
     if (mm == 0) goto fallback;
+#if defined(__SIZEOF_INT128__)
     {
         int k = ve - me;
         if (k >= -18 && k <= 18) {
@@ -426,6 +427,7 @@ static bool sch_mult_ok(const sch_node *n, const sch_svalue *v) {
             return num % den == 0;
         }
     }
+#endif
 fallback:
     {
         long double q = (long double)fv / (long double)n->fmult;

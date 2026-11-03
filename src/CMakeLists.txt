@@ -96,6 +96,16 @@ if(TEPTRIS_PROFILE_TRAIN)
     endforeach()
 endif()
 
+# the schema layer's multipleOf fallback uses C99 long-double math,
+# which lives in libm on Linux (the CRT carries it elsewhere)
+if(UNIX)
+    foreach(tgt teptris teptris_shared)
+        if(TARGET ${tgt})
+            target_link_libraries(${tgt} PRIVATE m)
+        endif()
+    endforeach()
+endif()
+
 # ---- install + consumer surface (TODO.impl/10) ----
 install(TARGETS ${TEPTRIS_INSTALL_TARGETS}
         EXPORT teptris-targets
