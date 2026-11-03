@@ -650,7 +650,7 @@ static jv *load_builtin_resource(sctx *c, const char *uri,
                                  const char *json) {
     size_t len = strlen(json);
     char jerr[160] = {0};
-    jv *root = json_read((teptris_arena *)&c->a, json, len, jerr, sizeof jerr);
+    jv *root = json_read(c->a, json, len, jerr, sizeof jerr);
     if (root == NULL) return NULL;
 
     if (c->n_resources == c->cap_resources) {
