@@ -22,6 +22,7 @@ set(TEPTRIS_SOURCES
     teptris/schema/json_read.c
     teptris/schema/regex.c
     teptris/schema/schema.c
+    teptris/schema/formats.c
     teptris/schema/validate.c
     teptris/api.c
 )

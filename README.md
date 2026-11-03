@@ -122,10 +122,16 @@ uploaded by the lane on failure.
 Validate TOML documents against JSON Schemas — the 2020-12 practical
 subset, compiled once and reused across documents, with four
 documented policies for the TOML/JSON incompatibilities (null, integer
-identity, datetimes, non-finite floats). Unsupported constructs are
-rejected at compile, never silently ignored; errors come back as
-`{"path", "schemaPath", "message"}` lists. The full contract, keyword
-table and runtime surfaces live in [`SCHEMAS.md`](SCHEMAS.md).
+identity, datetimes, non-finite floats). Audited against taplo's
+validation engine: every keyword and format taplo enforces, enforced
+here too (dependencies, additionalItems, tuple items, content
+checks, 21 format names), plus keywords taplo silently ignores
+(dependentRequired/dependentSchemas, minContains/maxContains,
+uuid/duration). Unsupported constructs are rejected at compile, never
+silently ignored; errors come back as
+`{"path", "schemaPath", "message"}` lists. The full contract, the
+taplo audit, keyword table and runtime surfaces live in
+[`SCHEMAS.md`](SCHEMAS.md).
 
 ```sh
 teptris validate --schema schema.json app.toml   # 0 valid, 1 invalid, 2 bad schema

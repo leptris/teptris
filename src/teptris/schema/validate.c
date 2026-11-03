@@ -2,6 +2,7 @@
  * document. One tagged-value conversion per validate call (validation
  * is a separate API; the parse hot path is untouched), then a single
  * recursive walk collecting every error, up to 256, as a JSON array. */
+#include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -181,8 +182,22 @@ static bool sv_equal(const sch_svalue *a, const sch_svalue *b) {
         if ((ad || bd) && (a->kind == SV_STRING || b->kind == SV_STRING)) {
             const sch_svalue *dt = ad ? a : b;
             const sch_svalue *st = ad ? b : a;
-            return dt->str_len == st->str_len &&
-                   memcmp(dt->str, st->str, dt->str_len) == 0;
+            if (dt->str_len == st->str_len &&
+                memcmp(dt->str, st->str, dt->str_len) == 0) {
+                return true;
+            }
+            /* taplo re-formats offset datetimes with the time crate,
+             * which spells UTC as "+00:00" where the canonical TOML
+             * form is "Z"; both spellings name the same instant, so
+             * const/enum entries match either way */
+            if (dt->kind == SV_DATETIME && dt->str_len > 0 &&
+                dt->str[dt->str_len - 1] == 'Z' && st->str_len > 6 &&
+                memcmp(st->str + st->str_len - 6, "+00:00", 6) == 0 &&
+                dt->str_len - 1 == st->str_len - 6 &&
+                memcmp(dt->str, st->str, st->str_len - 6) == 0) {
+                return true;
+            }
+            return false;
         }
         return false; /* type-strict (policy 2) */
     }
@@ -256,30 +271,166 @@ static size_t cp_count(const char *s, size_t len) {
     return count;
 }
 
-/* RFC 3339-ish shape checks for string values under format */
-static bool str_is_date(const char *s, size_t len) {
-    return len == 10 && s[4] == '-' && s[7] == '-';
-}
-static bool str_is_time(const char *s, size_t len) {
-    return len >= 8 && s[2] == ':' && s[5] == ':';
-}
-static bool str_is_datetime(const char *s, size_t len) {
-    return len >= 19 && s[4] == '-' && s[7] == '-' &&
-           (s[10] == 'T' || s[10] == ' ') && s[13] == ':' && s[16] == ':';
-}
-
-static bool format_ok(int format, const sch_svalue *v) {
+/* RFC 3339 shapes for the TOML datetime kinds live in formats.c; the
+ * walk only decides whether a kind participates in a format (policy
+ * 3) and hands plain strings to the format battery */
+static bool format_ok(vctx *vc, int format, const sch_svalue *v) {
     if (format == FMT_NONE) return true;
     if (v->kind == SV_DATE) return format == FMT_DATE;
     if (v->kind == SV_TIME) return format == FMT_TIME;
     if (v->kind == SV_DATETIME) return format == FMT_DATETIME;
     if (v->kind != SV_STRING) return format == FMT_NONE;
-    switch (format) {
-    case FMT_DATETIME: return str_is_datetime(v->str, v->str_len);
-    case FMT_DATE: return str_is_date(v->str, v->str_len);
-    case FMT_TIME: return str_is_time(v->str, v->str_len);
+    return sch_format_string_check(format, v->str, v->str_len, vc->scratch);
+}
+
+/* --------------------------------------------------------- content -- */
+
+static bool str_is_base64(const char *s, size_t len) {
+    if (len == 0) return true; /* "" decodes to empty (the crate's take) */
+    if (len % 4 != 0) return false;
+    size_t pad = 0;
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        bool alnum = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+                     (c >= '0' && c <= '9');
+        if (!(alnum || c == '+' || c == '/' || c == '=')) return false;
+        if (c == '=') {
+            pad++;
+        } else if (pad > 0) {
+            return false; /* padding only at the end */
+        }
     }
-    return true;
+    return pad <= 2;
+}
+
+static int b64_val(char c) {
+    if (c >= 'A' && c <= 'Z') return c - 'A';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 26;
+    if (c >= '0' && c <= '9') return c - '0' + 52;
+    if (c == '+') return 62;
+    if (c == '/') return 63;
+    return -1;
+}
+
+/* contentEncoding/contentMediaType, the taplo parity pair: base64 is
+ * the one encoding checked (and decoded for the media step),
+ * application/json the one media type parsed; unknown names on either
+ * side are no-ops, exactly like the crate's map misses */
+static void check_content(vctx *vc, const sch_node *n, const sch_svalue *v) {
+    if (v->kind != SV_STRING) return;
+    const char *text = v->str;
+    size_t tlen = v->str_len;
+    bool b64 = n->content_encoding != NULL &&
+               strcmp(n->content_encoding, "base64") == 0;
+    if (b64 && !str_is_base64(text, tlen)) {
+        verr(vc, "string is not valid base64 (contentEncoding)");
+        return;
+    }
+    if (n->content_media_type == NULL ||
+        strcmp(n->content_media_type, "application/json") != 0) {
+        return; /* unknown media names: annotation */
+    }
+    const char *payload = text;
+    size_t plen = tlen;
+    if (b64) {
+        size_t dn = tlen / 4 * 3;
+        if (tlen > 0 && text[tlen - 1] == '=') dn--;
+        if (tlen > 1 && text[tlen - 2] == '=') dn--;
+        char *out = teptris_arena_alloc(vc->scratch, dn + 1);
+        size_t o = 0;
+        int acc = 0, bits = 0;
+        for (size_t i = 0; i < tlen && o < dn; i++) {
+            if (text[i] == '=') break;
+            int d = b64_val(text[i]);
+            if (d < 0) break;
+            acc = (acc << 6) | d;
+            bits += 6;
+            if (bits >= 8) {
+                bits -= 8;
+                out[o++] = (char)((acc >> bits) & 0xFF);
+            }
+        }
+        /* the media check runs on the decoded text only when it is
+         * UTF-8 (the crate skips the check otherwise) */
+        bool utf8 = true;
+        for (size_t i = 0; i < o && utf8; i++) {
+            unsigned char b = (unsigned char)out[i];
+            if (b < 0x80) continue;
+            int need = b < 0xE0 ? 1 : b < 0xF0 ? 2 : 3;
+            if (i + need >= o || (b & 0xC0) != 0xC0) utf8 = false;
+            for (int k = 1; k <= need && utf8; k++) {
+                if (((unsigned char)out[i + k] & 0xC0) != 0x80) utf8 = false;
+            }
+            i += need;
+        }
+        if (!utf8) return;
+        out[o] = '\0';
+        payload = out;
+        plen = o;
+    }
+    char jerr[64] = {0};
+    if (json_read(vc->scratch, payload, plen, jerr, sizeof jerr) == NULL) {
+        verr(vc, "string is not valid JSON (contentMediaType)");
+    }
+}
+
+/* ------------------------------------------------------ multipleOf -- */
+
+static int64_t ipow10(int k) {
+    int64_t r = 1;
+    while (k-- > 0) r *= 10;
+    return r;
+}
+
+/* value / multipleOf, exactly where the decimal representations
+ * allow it: mant * 10^exp on both sides with a 128-bit product, so
+ * 0.3 is a true multiple of 0.1; the long-double fallback answers
+ * the extreme exponent spreads and replaces the truncation trap the
+ * plain division check had */
+static bool sch_mult_ok(const sch_node *n, const sch_svalue *v) {
+    if (v->kind == SV_INT && n->mult_is_int) {
+        return n->imult != 0 && v->i % n->imult == 0;
+    }
+    double fv = v->kind == SV_INT ? (double)v->i : v->f;
+    if (!(fv == fv) || fv == INFINITY || fv == -INFINITY) {
+        return false; /* nan/inf are never multiples */
+    }
+    int64_t vm, mm;
+    int ve, me;
+    if (v->kind == SV_INT) {
+        vm = v->i;
+        ve = 0;
+    } else if (!sch_decimal_of_double(v->f, &vm, &ve)) {
+        return false;
+    }
+    if (n->mult_is_int) {
+        mm = n->imult;
+        me = 0;
+    } else if (n->mult_exact) {
+        mm = n->mult_mant;
+        me = n->mult_exp;
+    } else {
+        goto fallback;
+    }
+    if (mm == 0) goto fallback;
+    {
+        int k = ve - me;
+        if (k >= -18 && k <= 18) {
+            __int128 num = (__int128)vm;
+            __int128 den = (__int128)mm;
+            if (k >= 0) {
+                num *= (__int128)ipow10(k);
+            } else {
+                den *= (__int128)ipow10(-k);
+            }
+            return num % den == 0;
+        }
+    }
+fallback:
+    {
+        long double q = (long double)fv / (long double)n->fmult;
+        return q == floorl(q);
+    }
 }
 
 static int sv_to_st(const sch_svalue *v) {
@@ -385,13 +536,7 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
             if (!ok) verr(vc, "value is not below the exclusive maximum");
         }
         if (n->has_mult) {
-            bool ok;
-            if (v->kind == SV_INT && n->mult_is_int) {
-                ok = n->imult != 0 && v->i % n->imult == 0;
-            } else {
-                ok = n->fmult != 0.0 && fv / n->fmult ==
-                                            (double)(long long)(fv / n->fmult);
-            }
+            bool ok = sch_mult_ok(n, v);
             if (!ok) verr(vc, "value is not a multiple of multipleOf");
         }
     }
@@ -411,9 +556,10 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
             !sch_regex_is_match(n->pattern, v->str, v->str_len)) {
             verr(vc, "string does not match the pattern");
         }
-        if (n->format != FMT_NONE && !format_ok(n->format, v)) {
+        if (n->format != FMT_NONE && !format_ok(vc, n->format, v)) {
             verr(vc, "string does not match the format");
         }
+        check_content(vc, n, v);
     }
 
     /* object */
@@ -555,12 +701,32 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
                     val(vc, n->items, v->items[i]);
                     path_pop(vc);
                     spop(vc);
+                } else if (n->add_items != NULL) {
+                    spush(vc, "additionalItems");
+                    path_push_idx(vc, (long)i);
+                    if (n->add_items->is_false) {
+                        verr(vc, "array has items beyond the tuple "
+                                 "(additionalItems is false)");
+                    } else {
+                        val(vc, n->add_items, v->items[i]);
+                    }
+                    path_pop(vc);
+                    spop(vc);
                 }
             }
-        } else if (n->items_set && n->items == NULL) {
-            /* "items": false — no items allowed beyond prefix */
-            if (v->n_items > n->n_prefix) {
-                verr(vc, "array has items beyond prefixItems (items is false)");
+        } else if (n->add_items != NULL) {
+            /* additionalItems with no tuple: every position */
+            for (size_t i = 0; i < v->n_items; i++) {
+                spush(vc, "additionalItems");
+                path_push_idx(vc, (long)i);
+                if (n->add_items->is_false) {
+                    verr(vc, "array has items beyond the tuple "
+                             "(additionalItems is false)");
+                } else {
+                    val(vc, n->add_items, v->items[i]);
+                }
+                path_pop(vc);
+                spop(vc);
             }
         }
         if (n->has_contains && n->contains != NULL) {
