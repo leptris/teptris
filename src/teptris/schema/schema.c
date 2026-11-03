@@ -403,7 +403,7 @@ static void collect_anchors(sctx *c, jv *v) {
  * self included, in document order: applying the schema puts all of
  * them in dynamic scope, whether or not the walk reaches each one.
  * $defs bodies compile lazily, so the walk compiles what it needs. */
-static void build_self_scope(sctx *c, jv *v) {
+static void build_self_scope(sctx *c, const jv *v) {
     if (v == NULL) return;
     if (jv_kind_of(v) == JV_OBJECT) {
         bool found = false, busy = false;
@@ -438,7 +438,7 @@ static void build_self_scope(sctx *c, jv *v) {
     }
 }
 
-static void attach_self_scope(sctx *c, sch_node *owner, jv *self) {
+static void attach_self_scope(sctx *c, sch_node *owner, const jv *self) {
     /* the walk may compile a lazily-seen $defs body whose own attach
      * re-enters this function: my entries start at the base and the
      * accumulator is handed back to my caller untouched */
