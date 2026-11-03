@@ -185,6 +185,13 @@ typedef struct {
         bool in_progress;
     } *memo;
     size_t n_memo, cap_memo;
+    /* pointer-keyed hash over the memo (compile is O(n), not O(n^2)):
+     * open addressing, slot = entry index + 1, 0 = empty */
+    uint32_t *memo_hash;
+    size_t memo_hash_cap; /* power of two, 0 = absent */
+    /* the same treatment for the per-node base table */
+    uint32_t *node_base_hash;
+    size_t node_base_hash_cap;
     /* dependency-list capacities (grow-in-place across keywords) */
     size_t cap_dep_req, cap_dep_schemas;
     /* anchors: "$anchor": name -> subtree (doc-wide; the $anchor

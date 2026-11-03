@@ -870,3 +870,34 @@ relative to the machine, per shape.
 | table_heavy | 411 | 0.98% | 362 | 0.86% |
 
 Parse spans 0.87-1.29% of streaming bandwidth; emit 0.63-1.82%.
+
+## teptris vs tombi — CLI AB (2026-11-03, this host)
+
+tombi at rust/main ef56d3ea (0.0.0-dev, 2026-11-03), release build;
+teptris 0.3.23 Release+LTO (`build-bench`). Interleaved subprocess
+timing, best-of-15/25 medians, warm cache. Corpora: 8.1 MiB / 60k-table
+catalog (`valid_big.toml`, generated), a 1 MiB 5k-property schema with
+a tiny doc (the compile cell), plus 500 KiB and 20 KiB slices of the
+same shape. Every cell is end-to-end CLI wall time including startup.
+
+| cell (8.1 MiB corpus) | teptris | tombi | speedup |
+|---|---|---|---|
+| parse (`parse` vs `lint`, no schema) | 0.047 s | 0.814 s | **17.5x** |
+| format (`to-json` vs `format`) | 0.046 s | 1.469 s | **31.9x** |
+| validate (`validate --schema` vs `lint` + `#:schema`) | 0.721 s | 4.902 s | **6.8x** |
+| schema compile (1 MiB schema + tiny doc) | 0.025 s | 0.085 s | **3.4x** |
+
+Small/mid regimes (spawn-dominated): 20 KiB validate 2 ms vs 18 ms
+(9x), parse 2 ms vs 9 ms (4.5x); 500 KiB validate 9 ms vs 234 ms
+(26x), parse 4 ms vs 45 ms (11x).
+
+The schema-compile cell drove this round's engine fix: `memo_get` and
+the per-node base table were linear scans (O(n^2) on large schemas);
+both are now pointer-keyed open-addressing hashes — compile of the
+1 MiB schema dropped 0.82 s to 0.025 s (33x), with unit/suite gates
+unchanged (196/196, Definition A 1173/1173, sota 964/1011 -> 980/1011
+as the resource model resolves more cases).
+
+Reproduce: corpora in /tmp/perf are generated inline in the session
+notes; the tombi CLI builds from rust/main at the pin above with
+`cargo build --release`.
