@@ -35,7 +35,10 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     teptris_status st = teptris_schema_compile(schema_src, schema_len, &sch,
                                                &diag, &diag_len);
     if (st != TEPTRIS_OK) {
-        if (sch != NULL) return 0; /* contract: no schema on failure */
+        if (sch != NULL) {
+            teptris_schema_free(sch);
+            return 0; /* contract: no schema on failure */
+        }
         /* diag, when present, is one malloc'd NUL-terminated buffer */
         if (diag != NULL) {
             int shape_ok = diag_len == strlen(diag);
@@ -44,22 +47,30 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
         }
         return 0;
     }
-    if (diag != NULL) return 0; /* contract: no diag on success */
+    if (diag != NULL) {
+        teptris_schema_free(sch);
+        return 0; /* contract: no diag on success */
+    }
 
-    /* validate the raw TOML string */
+    /* validate the raw TOML string; the shape checks and the free
+     * run on every path (the doc side is arbitrary bytes, so the
+     * parse may fail with any document status, not just SYNTAX) */
     char *buf = NULL;
     size_t blen = 0;
     st = teptris_schema_validate(sch, doc_src, doc_len, &buf, &blen);
+    int shape_ok;
     if (st == TEPTRIS_OK) {
-        int shape_ok = buf != NULL && blen >= 2 && buf[0] == '[' &&
-                       buf[blen - 1] == ']' && strlen(buf) == blen;
-        free(buf);
-        if (!shape_ok) return 0;
+        shape_ok = buf != NULL && blen >= 2 && buf[0] == '[' &&
+                   buf[blen - 1] == ']' && strlen(buf) == blen;
     } else {
-        /* any other status hands back nothing (syntax is the only
-         * expected non-OK: the doc side is arbitrary bytes) */
-        if (buf != NULL) return 0;
-        if (st != TEPTRIS_ERR_SYNTAX) return 0;
+        /* any other status hands back nothing; non-OK parses are the
+         * document statuses (SEMANTIC/ENCODING/DEPTH included) */
+        shape_ok = buf == NULL && st != TEPTRIS_OK;
+    }
+    free(buf);
+    if (!shape_ok) {
+        teptris_schema_free(sch);
+        return 0;
     }
 
     /* validate_doc on the same bytes when they parse */
