@@ -27,7 +27,29 @@ enum {
     FMT_NONE = 0,
     FMT_DATETIME,
     FMT_DATE,
-    FMT_TIME
+    FMT_TIME,
+    /* the taplo parity set: every format the jsonschema crate (the
+     * engine behind taplo) asserts on; names outside this set are
+     * annotations on both sides */
+    FMT_EMAIL,
+    FMT_IDN_EMAIL,
+    FMT_HOSTNAME,
+    FMT_IDN_HOSTNAME,
+    FMT_IPV4,
+    FMT_IPV6,
+    FMT_URI,
+    FMT_IRI,
+    FMT_URI_REFERENCE,
+    FMT_IRI_REFERENCE,
+    FMT_JSON_POINTER,
+    FMT_RELATIVE_JSON_POINTER,
+    FMT_REGEX,
+    FMT_URI_TEMPLATE,
+    FMT_UUID,
+    FMT_DURATION,
+    /* taplo's own custom formats (registered by its schema cache) */
+    FMT_SEMVER,
+    FMT_SEMVER_REQUIREMENT
 };
 
 typedef struct sch_node sch_node;
@@ -80,6 +102,8 @@ struct sch_node {
     size_t n_prefix;
     sch_node *items;
     bool items_set;
+    sch_node *add_items; /* additionalItems: applies beyond prefix */
+    bool add_items_set;
     sch_node *contains;
     long min_contains, max_contains;
     bool has_contains, has_min_contains, has_max_contains;
@@ -93,6 +117,8 @@ struct sch_node {
     long min_length, max_length;
     bool has_min_length, has_max_length;
     int format;
+    const char *content_encoding;    /* enforced: "base64" */
+    const char *content_media_type;  /* enforced: "application/json" */
 
     /* numeric keywords: the int form is exact when the constraint was
      * an exact integer token */
@@ -103,6 +129,11 @@ struct sch_node {
     double fmult;
     int64_t imult;
     bool mult_is_int;
+    /* exact-decimal view of a non-integer multipleOf: the
+     * shortest-roundtrip mantissa and decimal exponent */
+    bool mult_exact;
+    int64_t mult_mant;
+    int mult_exp;
 
     /* value constraints */
     jv **enum_vals;
@@ -127,6 +158,8 @@ typedef struct {
         bool in_progress;
     } *memo;
     size_t n_memo, cap_memo;
+    /* dependency-list capacities (grow-in-place across keywords) */
+    size_t cap_dep_req, cap_dep_schemas;
     /* anchors: "$anchor": name -> subtree */
     struct {
         const char *name;
@@ -175,5 +208,14 @@ struct sch_svalue {
 /* schema.c */
 sch_node *sch_compile_node(sctx *c, const jv *v);
 sch_node *sch_resolve_pointer(sctx *c, const char *pointer);
+/* the shortest-roundtrip decimal view of a double: d = mant * 10^exp
+ * with |mant| < 10^18; false for non-finite d */
+bool sch_decimal_of_double(double d, int64_t *mant, int *exp);
+
+/* formats.c */
+/* the string-side format battery (the taplo parity set); datetimes
+ * reach it through their canonical text like any other string */
+bool sch_format_string_check(int format, const char *s, size_t len,
+                             teptris_arena *scratch);
 
 #endif

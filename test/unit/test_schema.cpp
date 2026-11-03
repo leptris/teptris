@@ -826,3 +826,316 @@ TEST(SchemaFixtures, PyprojectLikeManifest)
     EXPECT_NE(errs.find("\"path\":\"tool.demo.tags\""), std::string::npos);
     EXPECT_NE(errs.find("\"path\":\"tool.demo.since\""), std::string::npos);
 }
+
+/* ================================================== taplo parity set */
+
+TEST(SchemaDeps, DependenciesArrayForm)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"dependencies\":{\"credit_card\":[\"billing_address\"]}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "name = 'x'\n"));
+    EXPECT_TRUE(valid(s.sch,
+                      "credit_card = 1\nbilling_address = 'y'\n"));
+    EXPECT_FALSE(valid(s.sch, "credit_card = 1\n"));
+    std::string errs = validate_str(s.sch, "credit_card = 1\n");
+    EXPECT_NE(errs.find("billing_address"), std::string::npos);
+}
+
+TEST(SchemaDeps, DependenciesSchemaForm)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"dependencies\":{\"credit_card\":{\"properties\":"
+         "{\"billing_address\":{\"type\":\"string\"}}}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "credit_card = 1\n"));
+    EXPECT_TRUE(valid(s.sch,
+                      "credit_card = 1\nbilling_address = 'y'\n"));
+    EXPECT_FALSE(valid(s.sch,
+                       "credit_card = 1\nbilling_address = 2\n"));
+}
+
+TEST(SchemaDeps, DependenciesMixedAndWrongShape)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"dependencies\":{\"a\":[\"b\"],\"c\":{\"required\":[\"d\"]}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_FALSE(valid(s.sch, "a = 1\nc = true\n"));
+    EXPECT_TRUE(valid(s.sch, "a = 1\nc = true\nd = 1\nb = 1\n"));
+    /* non-array, non-schema values are a compile error, never silence */
+    std::string diag =
+        compile_diag("{\"dependencies\":{\"a\":42}}");
+    EXPECT_NE(diag.find("dependencies"), std::string::npos);
+}
+
+TEST(SchemaTuple, AdditionalItemsAndItemsArray)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"t\":{\"items\":[{\"type\":\"string\"},"
+         "{\"type\":\"integer\"}]}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "t = ['a', 1]\n"));
+    EXPECT_FALSE(valid(s.sch, "t = [1, 'a']\n"));
+    /* tuple form leaves extra items unconstrained (draft-07 default) */
+    EXPECT_TRUE(valid(s.sch, "t = ['a', 1, true]\n"));
+    EXPECT_EQ(first_path(validate_str(s.sch, "t = [1, 'a']\n")), "t.0");
+}
+
+TEST(SchemaTuple, AdditionalItemsFalse)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"t\":{\"items\":[{\"type\":\"string\"}],"
+         "\"additionalItems\":false}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "t = ['a']\n"));
+    EXPECT_FALSE(valid(s.sch, "t = ['a', 1]\n"));
+    EXPECT_EQ(first_path(validate_str(s.sch, "t = ['a', 1]\n")), "t.1");
+}
+
+TEST(SchemaTuple, AdditionalItemsSchema)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"t\":{\"items\":[{\"type\":\"string\"}],"
+         "\"additionalItems\":{\"type\":\"integer\"}}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "t = ['a', 1, 2]\n"));
+    EXPECT_FALSE(valid(s.sch, "t = ['a', 'b']\n"));
+    EXPECT_EQ(first_path(validate_str(s.sch, "t = ['a', 'b']\n")), "t.1");
+}
+
+TEST(SchemaTuple, AdditionalItemsWithoutTuple)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"t\":{\"additionalItems\":{\"type\":"
+         "\"integer\"}}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "t = [1, 2]\n"));
+    EXPECT_FALSE(valid(s.sch, "t = [1, 'x']\n"));
+}
+
+TEST(SchemaContent, Base64AndJsonMediaType)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"d\":{\"contentEncoding\":\"base64\"},"
+         "\"j\":{\"contentMediaType\":\"application/json\"}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "d = 'aGVsbG8='\n"));
+    EXPECT_TRUE(valid(s.sch, "d = ''\n")); /* empty decodes to empty */
+    EXPECT_FALSE(valid(s.sch, "d = 'not base64!'\n"));
+    EXPECT_FALSE(valid(s.sch, "d = 'aGVsbG8'\n")); /* no padding */
+    EXPECT_TRUE(valid(s.sch, "j = '{\"a\": [1, 2]}'\n"));
+    EXPECT_FALSE(valid(s.sch, "j = '{oops}'\n"));
+    /* base64 content is decoded before the media check */
+    SchemaDoc both;
+    both.sch = compile_ok(
+        {"{\"properties\":{\"x\":{\"contentEncoding\":\"base64\","
+         "\"contentMediaType\":\"application/json\"}}}"});
+    ASSERT_NE(both.sch, nullptr);
+    /* base64("7B") is "{" — decoded text parses as JSON? no: "{" alone
+     * is not valid JSON; use base64 of "[]" */
+    EXPECT_TRUE(valid(both.sch, "x = 'W10='\n")); /* "[]" */
+    EXPECT_FALSE(valid(both.sch, "x = 'eHg='\n")); /* "xx" */
+}
+
+TEST(SchemaContent, UnknownNamesAreAnnotations)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"d\":{\"contentEncoding\":\"gzip\","
+         "\"contentMediaType\":\"image/png\"}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "d = 'anything at all'\n"));
+}
+
+TEST(SchemaNumeric, MultipleOfExactDecimals)
+{
+    SchemaDoc s;
+    s.sch = compile_ok({"{\"properties\":{\"k\":{\"multipleOf\":0.1}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "k = 0.3\n"));  /* the 2.9999... trap */
+    EXPECT_TRUE(valid(s.sch, "k = 3.0\n"));
+    EXPECT_TRUE(valid(s.sch, "k = -0.7\n"));
+    EXPECT_FALSE(valid(s.sch, "k = 0.35\n"));
+    SchemaDoc c;
+    c.sch = compile_ok({"{\"properties\":{\"k\":{\"multipleOf\":0.01}}}"});
+    ASSERT_NE(c.sch, nullptr);
+    EXPECT_TRUE(valid(c.sch, "k = 0.07\n"));
+    EXPECT_TRUE(valid(c.sch, "k = 7\n"));
+    EXPECT_FALSE(valid(c.sch, "k = 0.075\n"));
+    SchemaDoc big;
+    big.sch = compile_ok({"{\"properties\":{\"k\":{\"multipleOf\":1e300}}}"});
+    ASSERT_NE(big.sch, nullptr);
+    EXPECT_TRUE(valid(big.sch, "k = 2e300\n"));
+    EXPECT_FALSE(valid(big.sch, "k = 1.5e300\n"));
+}
+
+TEST(SchemaValues, ConstMatchesZAndOffsetSpellings)
+{
+    SchemaDoc z;
+    z.sch = compile_ok(
+        {"{\"properties\":{\"k\":{\"const\":\"2026-01-02T03:04:05Z\"}}}"});
+    ASSERT_NE(z.sch, nullptr);
+    EXPECT_TRUE(valid(z.sch, "k = 2026-01-02T03:04:05Z\n"));
+    /* the same instant written with a +00:00 offset in the schema */
+    SchemaDoc off;
+    off.sch = compile_ok(
+        {"{\"properties\":{\"k\":{\"const\":"
+         "\"2026-01-02T03:04:05+00:00\"}}}"});
+    ASSERT_NE(off.sch, nullptr);
+    EXPECT_TRUE(valid(off.sch, "k = 2026-01-02T03:04:05Z\n"));
+    EXPECT_FALSE(valid(off.sch, "k = 2026-01-02T03:04:05+01:00\n"));
+}
+
+TEST(SchemaFormats, DateAndDateTimeStrings)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"d\":{\"format\":\"date\"},"
+         "\"t\":{\"format\":\"date-time\"}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "d = '2026-01-31'\n"));
+    EXPECT_TRUE(valid(s.sch, "d = 2026-01-31\n")); /* a TOML date value */
+    EXPECT_FALSE(valid(s.sch, "d = '2026-02-30'\n")); /* no such day */
+    EXPECT_FALSE(valid(s.sch, "d = '2026-1-31'\n"));
+    EXPECT_TRUE(valid(s.sch, "t = '2026-01-02T03:04:05Z'\n"));
+    EXPECT_TRUE(valid(s.sch, "t = '2026-01-02T03:04:05.25+01:00'\n"));
+    EXPECT_TRUE(valid(s.sch, "t = 2026-01-02T03:04:05Z\n"));
+    /* RFC 3339 requires the offset on plain strings */
+    EXPECT_FALSE(valid(s.sch, "t = '2026-01-02T03:04:05'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = '2026-13-02T03:04:05Z'\n"));
+}
+
+TEST(SchemaFormats, TimeStrings)
+{
+    SchemaDoc s;
+    s.sch = compile_ok({"{\"properties\":{\"t\":{\"format\":\"time\"}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    /* the crate's TIME_RE wants an offset on strings */
+    EXPECT_TRUE(valid(s.sch, "t = '07:32:00Z'\n"));
+    EXPECT_TRUE(valid(s.sch, "t = '07:32:00+01:00'\n"));
+    EXPECT_TRUE(valid(s.sch, "t = '07:32:00.123456Z'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = '07:32:00'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = '24:32:00Z'\n"));
+    /* a TOML local time value still satisfies the format by kind
+     * (policy 3; taplo rejects it through its JSON round trip) */
+    EXPECT_TRUE(valid(s.sch, "t = 07:32:00\n"));
+}
+
+TEST(SchemaFormats, EmailAndHostname)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"e\":{\"format\":\"email\"},"
+         "\"h\":{\"format\":\"hostname\"}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "e = 'a@b'\n"));
+    EXPECT_TRUE(valid(s.sch, "e = 'first.last@sub.domain'\n"));
+    EXPECT_FALSE(valid(s.sch, "e = 'no-at-sign'\n"));
+    EXPECT_FALSE(valid(s.sch, "e = '.a@b'\n"));
+    EXPECT_FALSE(valid(s.sch, "e = 'a..b@c'\n"));
+    EXPECT_FALSE(valid(s.sch, "e = 'a.@b'\n"));
+    EXPECT_TRUE(valid(s.sch, "h = 'example.com'\n"));
+    EXPECT_TRUE(valid(s.sch, "h = 'a-b.example'\n"));
+    EXPECT_FALSE(valid(s.sch, "h = '-a.b'\n"));
+    EXPECT_FALSE(valid(s.sch, "h = 'a.b-'\n"));
+    EXPECT_FALSE(valid(s.sch, "h = ''\n"));
+    EXPECT_TRUE(valid(s.sch, "h = 'a..b'\n")); /* empty labels pass (crate parity) */
+}
+
+TEST(SchemaFormats, IpAddresses)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"v4\":{\"format\":\"ipv4\"},"
+         "\"v6\":{\"format\":\"ipv6\"}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "v4 = '192.168.0.1'\n"));
+    EXPECT_TRUE(valid(s.sch, "v4 = '0.0.0.0'\n"));
+    EXPECT_FALSE(valid(s.sch, "v4 = '192.168.01.1'\n"));
+    EXPECT_FALSE(valid(s.sch, "v4 = '192.168.0'\n"));
+    EXPECT_FALSE(valid(s.sch, "v4 = '256.1.1.1'\n"));
+    EXPECT_TRUE(valid(s.sch, "v6 = '::1'\n"));
+    EXPECT_TRUE(valid(s.sch, "v6 = '2001:db8::8a2e:370:7334'\n"));
+    EXPECT_TRUE(valid(s.sch, "v6 = '::ffff:192.168.0.1'\n"));
+    EXPECT_TRUE(valid(s.sch, "v6 = '1:2:3:4:5:6:7:8'\n"));
+    EXPECT_FALSE(valid(s.sch, "v6 = '1:2:3:4:5:6:7'\n"));
+    EXPECT_FALSE(valid(s.sch, "v6 = '1::2::3'\n"));
+    EXPECT_FALSE(valid(s.sch, "v6 = '1:2:3:4:5:6:7:8:9'\n"));
+}
+
+TEST(SchemaFormats, PointersAndUuidAndUri)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"p\":{\"format\":\"json-pointer\"},"
+         "\"r\":{\"format\":\"relative-json-pointer\"},"
+         "\"u\":{\"format\":\"uuid\"},"
+         "\"w\":{\"format\":\"uri\"}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "p = ''\n"));
+    EXPECT_TRUE(valid(s.sch, "p = '/a/b~1c~0d'\n"));
+    EXPECT_FALSE(valid(s.sch, "p = 'a/b'\n"));
+    EXPECT_FALSE(valid(s.sch, "p = '/a~2'\n"));
+    EXPECT_TRUE(valid(s.sch, "r = '0'\n") == false); /* needs # or tail */
+    EXPECT_TRUE(valid(s.sch, "r = '0#'\n"));
+    EXPECT_TRUE(valid(s.sch, "r = '1/a/b'\n"));
+    EXPECT_TRUE(valid(s.sch, "u = '123e4567-e89b-12d3-a456-426614174000'\n"));
+    EXPECT_TRUE(valid(s.sch, "u = '123e4567e89b12d3a456426614174000'\n"));
+    EXPECT_FALSE(valid(s.sch, "u = '123e4567-e89b-12d3-a456'\n"));
+    EXPECT_TRUE(valid(s.sch, "w = 'https://example.com/x?y=1'\n"));
+    EXPECT_TRUE(valid(s.sch, "w = 'mailto:a@b.c'\n"));
+    EXPECT_FALSE(valid(s.sch, "w = 'example.com'\n"));
+    EXPECT_FALSE(valid(s.sch, "w = '1http://a'\n"));
+}
+
+TEST(SchemaFormats, RegexAndDurationAndTemplate)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"r\":{\"format\":\"regex\"},"
+         "\"d\":{\"format\":\"duration\"},"
+         "\"t\":{\"format\":\"uri-template\"}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "r = '^[a-z]+$'\n"));
+    EXPECT_FALSE(valid(s.sch, "r = '[unclosed'\n"));
+    EXPECT_TRUE(valid(s.sch, "d = 'P1Y2M3DT4H5M6S'\n"));
+    EXPECT_TRUE(valid(s.sch, "d = 'P1W'\n"));
+    EXPECT_TRUE(valid(s.sch, "d = '-PT0.5S'\n"));
+    EXPECT_FALSE(valid(s.sch, "d = '1 day'\n"));
+    EXPECT_FALSE(valid(s.sch, "d = 'P'\n"));
+    EXPECT_TRUE(valid(s.sch, "t = 'http://example.com/{id}'\n"));
+    EXPECT_TRUE(valid(s.sch, "t = '/users/{id}/tags{?q}'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = 'http://x/{no-closing'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = 'a b'\n")); /* a space is a bad literal */
+}
+
+TEST(SchemaFormats, SemverFamily)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"v\":{\"format\":\"semver\"},"
+         "\"r\":{\"format\":\"semver-requirement\"}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "v = '1.2.3'\n"));
+    EXPECT_TRUE(valid(s.sch, "v = '0.0.0'\n"));
+    EXPECT_TRUE(valid(s.sch, "v = '1.2.3-alpha.1+b7'\n"));
+    EXPECT_FALSE(valid(s.sch, "v = '1.2'\n"));
+    EXPECT_FALSE(valid(s.sch, "v = '01.2.3'\n"));
+    EXPECT_FALSE(valid(s.sch, "v = '1.02.3'\n"));
+    EXPECT_TRUE(valid(s.sch, "r = '^1.2'\n"));
+    EXPECT_TRUE(valid(s.sch, "r = '>= 1.2, < 1.5'\n"));
+    EXPECT_TRUE(valid(s.sch, "r = '1.2.*'\n"));
+    EXPECT_TRUE(valid(s.sch, "r = '*'\n"));
+    EXPECT_TRUE(valid(s.sch, "r = '~1.2.3'\n"));
+    EXPECT_FALSE(valid(s.sch, "r = ''\n"));
+    EXPECT_FALSE(valid(s.sch, "r = 'not a req'\n"));
+    EXPECT_FALSE(valid(s.sch, "r = '>=,'\n"));
+}

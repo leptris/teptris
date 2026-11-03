@@ -1,6 +1,7 @@
 /* Schema compilation: JSON Schema text -> a compiled sch_node graph.
  * See schema.h for the policy contract. Unsupported keywords that
  * would silently change results are rejected here, at compile. */
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -156,6 +157,25 @@ static int format_kind(const char *name) {
     if (strcmp(name, "date-time") == 0) return FMT_DATETIME;
     if (strcmp(name, "date") == 0) return FMT_DATE;
     if (strcmp(name, "time") == 0) return FMT_TIME;
+    if (strcmp(name, "email") == 0) return FMT_EMAIL;
+    if (strcmp(name, "idn-email") == 0) return FMT_IDN_EMAIL;
+    if (strcmp(name, "hostname") == 0) return FMT_HOSTNAME;
+    if (strcmp(name, "idn-hostname") == 0) return FMT_IDN_HOSTNAME;
+    if (strcmp(name, "ipv4") == 0) return FMT_IPV4;
+    if (strcmp(name, "ipv6") == 0) return FMT_IPV6;
+    if (strcmp(name, "uri") == 0) return FMT_URI;
+    if (strcmp(name, "iri") == 0) return FMT_IRI;
+    if (strcmp(name, "uri-reference") == 0) return FMT_URI_REFERENCE;
+    if (strcmp(name, "iri-reference") == 0) return FMT_IRI_REFERENCE;
+    if (strcmp(name, "json-pointer") == 0) return FMT_JSON_POINTER;
+    if (strcmp(name, "relative-json-pointer") == 0)
+        return FMT_RELATIVE_JSON_POINTER;
+    if (strcmp(name, "regex") == 0) return FMT_REGEX;
+    if (strcmp(name, "uri-template") == 0) return FMT_URI_TEMPLATE;
+    if (strcmp(name, "uuid") == 0) return FMT_UUID;
+    if (strcmp(name, "duration") == 0) return FMT_DURATION;
+    if (strcmp(name, "semver") == 0) return FMT_SEMVER;
+    if (strcmp(name, "semver-requirement") == 0) return FMT_SEMVER_REQUIREMENT;
     return FMT_NONE; /* other formats: annotations (host's choice) */
 }
 
@@ -197,6 +217,58 @@ static bool compile_type(sctx *c, sch_node *n, jv *tv, const char *where) {
     }
     sfail(c, "type must be a string or array of strings", where);
     return false;
+}
+
+static bool grow_dep_list(sctx *c, sch_kschema **list, size_t *n, size_t *cap) {
+    if (*n == *cap) {
+        *cap = *cap == 0 ? 4 : *cap * 2;
+        sch_kschema *nl =
+            teptris_arena_alloc(c->a, *cap * sizeof(**list));
+        if (*n > 0) memcpy(nl, *list, *n * sizeof(**list));
+        *list = nl;
+    }
+    return true;
+}
+
+/* one "key": [names...] pair (dependentRequired, or dependencies'
+ * array form): the fake node reuses the required storage shape */
+static bool sch_compile_dep_req(sctx *c, sch_node *n, const char *key,
+                                jv *list) {
+    grow_dep_list(c, &n->dep_req, &n->n_dep_req, &c->cap_dep_req);
+    sch_node *fake = sch_node_new(c);
+    size_t dn = jv_item_count(list);
+    fake->required = teptris_arena_alloc(c->a, (dn ? dn : 1) * sizeof(char *));
+    for (size_t d = 0; d < dn; d++) {
+        jv *e = jv_item(list, d);
+        if (jv_kind_of(e) != JV_STRING) {
+            sfail(c, "dependency entries must be strings", key);
+            return false;
+        }
+        size_t slen = jv_str_len(e);
+        char *rb = teptris_arena_alloc(c->a, slen + 1);
+        memcpy(rb, jv_str(e), slen);
+        rb[slen] = '\0';
+        fake->required[d] = rb;
+    }
+    fake->n_req = dn;
+    n->dep_req[n->n_dep_req].key = key;
+    n->dep_req[n->n_dep_req].schema = fake;
+    n->n_dep_req++;
+    return true;
+}
+
+/* one "key": {schema} pair (dependentSchemas, or dependencies'
+ * schema form; a boolean is a schema) */
+static bool sch_compile_dep_schema(sctx *c, sch_node *n, const char *key,
+                                   jv *dv) {
+    grow_dep_list(c, &n->dep_schemas, &n->n_dep_schemas,
+                  &c->cap_dep_schemas);
+    sch_node *s = sch_compile_node(c, dv);
+    if (s == NULL && c->err[0] != '\0') return false;
+    n->dep_schemas[n->n_dep_schemas].key = key;
+    n->dep_schemas[n->n_dep_schemas].schema = s;
+    n->n_dep_schemas++;
+    return true;
 }
 
 sch_node *sch_compile_node(sctx *c, const jv *v) {
@@ -331,64 +403,92 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
                    jv_kind_of(val) == JV_INT) {
             n->max_props = (long)jv_int(val);
             n->has_max_props = true;
+        } else if (strcmp(k, "dependencies") == 0 &&
+                   jv_kind_of(val) == JV_OBJECT) {
+            /* draft-07 dependencies: an array value is a
+             * dependentRequired pair, a schema value a
+             * dependentSchemas pair */
+            size_t cnt = jv_member_count(val);
+            for (size_t p = 0; p < cnt; p++) {
+                jv *dv = jv_member_val(val, p);
+                if (jv_kind_of(dv) == JV_ARRAY) {
+                    if (!sch_compile_dep_req(c, n, jv_member_key(val, p), dv))
+                        return NULL;
+                } else if (jv_kind_of(dv) == JV_OBJECT ||
+                           jv_kind_of(dv) == JV_BOOL) {
+                    if (!sch_compile_dep_schema(c, n, jv_member_key(val, p),
+                                                dv))
+                        return NULL;
+                } else {
+                    sfail(c, "dependencies values must be arrays or schemas",
+                          k);
+                    return NULL;
+                }
+            }
         } else if (strcmp(k, "dependentRequired") == 0 &&
                    jv_kind_of(val) == JV_OBJECT) {
             size_t cnt = jv_member_count(val);
-            n->dep_req =
-                teptris_arena_alloc(c->a, (cnt ? cnt : 1) * sizeof(sch_kschema));
             for (size_t p = 0; p < cnt; p++) {
                 jv *list = jv_member_val(val, p);
                 if (jv_kind_of(list) != JV_ARRAY) {
                     sfail(c, "dependentRequired values must be arrays", k);
                     return NULL;
                 }
-                n->dep_req[p].key = jv_member_key(val, p);
-                /* reuse the required storage shape: an sch_node whose
-                 * required list carries the dependency keys */
-                sch_node *fake = sch_node_new(c);
-                size_t dn = jv_item_count(list);
-                fake->required =
-                    teptris_arena_alloc(c->a, (dn ? dn : 1) * sizeof(char *));
-                for (size_t d = 0; d < dn; d++) {
-                    jv *e = jv_item(list, d);
-                    if (jv_kind_of(e) != JV_STRING) {
-                        sfail(c, "dependentRequired entries must be strings", k);
-                        return NULL;
-                    }
-                    size_t slen = jv_str_len(e);
-                    char *rb = teptris_arena_alloc(c->a, slen + 1);
-                    memcpy(rb, jv_str(e), slen);
-                    rb[slen] = '\0';
-                    fake->required[d] = rb;
-                }
-                fake->n_req = dn;
-                n->dep_req[p].schema = fake;
+                if (!sch_compile_dep_req(c, n, jv_member_key(val, p), list))
+                    return NULL;
             }
-            n->n_dep_req = cnt;
         } else if (strcmp(k, "dependentSchemas") == 0 &&
                    jv_kind_of(val) == JV_OBJECT) {
             size_t cnt = jv_member_count(val);
-            n->dep_schemas = teptris_arena_alloc(
-                c->a, (cnt ? cnt : 1) * sizeof(sch_kschema));
             for (size_t p = 0; p < cnt; p++) {
-                n->dep_schemas[p].key = jv_member_key(val, p);
-                n->dep_schemas[p].schema = sch_compile_node(c, jv_member_val(val, p));
-                if (n->dep_schemas[p].schema == NULL && c->err[0] != '\0') return NULL;
+                if (!sch_compile_dep_schema(c, n, jv_member_key(val, p),
+                                            jv_member_val(val, p)))
+                    return NULL;
             }
-            n->n_dep_schemas = cnt;
+        } else if (strcmp(k, "contentEncoding") == 0 &&
+                   jv_kind_of(val) == JV_STRING) {
+            n->content_encoding = jv_str(val);
+        } else if (strcmp(k, "contentMediaType") == 0 &&
+                   jv_kind_of(val) == JV_STRING) {
+            n->content_media_type = jv_str(val);
+        } else if (strcmp(k, "items") == 0 && jv_kind_of(val) == JV_ARRAY) {
+            /* draft-07 tuple form: positional prefixes; the union
+             * reads them exactly like prefixItems, with
+             * additionalItems covering anything beyond */
+            size_t cnt = jv_item_count(val);
+            size_t base = n->n_prefix;
+            size_t total = base + cnt;
+            sch_node **np = teptris_arena_alloc(
+                c->a, (total ? total : 1) * sizeof(sch_node *));
+            if (base > 0) memcpy(np, n->prefix, base * sizeof(sch_node *));
+            for (size_t p = 0; p < cnt; p++) {
+                np[base + p] = sch_compile_node(c, jv_item(val, p));
+                if (np[base + p] == NULL && c->err[0] != '\0') return NULL;
+            }
+            n->prefix = np;
+            n->n_prefix = total;
         } else if (strcmp(k, "items") == 0) {
             n->items = sch_compile_node(c, val);
             if (n->items == NULL && c->err[0] != '\0') return NULL;
             n->items_set = true;
+        } else if (strcmp(k, "additionalItems") == 0) {
+            n->add_items = sch_compile_node(c, val);
+            if (n->add_items == NULL && c->err[0] != '\0') return NULL;
+            n->add_items_set = true;
         } else if (strcmp(k, "prefixItems") == 0 &&
                    jv_kind_of(val) == JV_ARRAY) {
             size_t cnt = jv_item_count(val);
-            n->prefix = teptris_arena_alloc(c->a, (cnt ? cnt : 1) * sizeof(sch_node *));
+            size_t base = n->n_prefix;
+            size_t total = base + cnt;
+            sch_node **np = teptris_arena_alloc(
+                c->a, (total ? total : 1) * sizeof(sch_node *));
+            if (base > 0) memcpy(np, n->prefix, base * sizeof(sch_node *));
             for (size_t p = 0; p < cnt; p++) {
-                n->prefix[p] = sch_compile_node(c, jv_item(val, p));
-                if (n->prefix[p] == NULL && c->err[0] != '\0') return NULL;
+                np[base + p] = sch_compile_node(c, jv_item(val, p));
+                if (np[base + p] == NULL && c->err[0] != '\0') return NULL;
             }
-            n->n_prefix = cnt;
+            n->prefix = np;
+            n->n_prefix = total;
         } else if (strcmp(k, "contains") == 0) {
             n->contains = sch_compile_node(c, val);
             if (n->contains == NULL && c->err[0] != '\0') return NULL;
@@ -456,6 +556,9 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
             if (jv_kind_of(val) == JV_INT) {
                 n->mult_is_int = true;
                 n->imult = jv_int(val);
+            } else if (sch_decimal_of_double(m, &n->mult_mant,
+                                             &n->mult_exp)) {
+                n->mult_exact = true;
             }
         } else if (strcmp(k, "allOf") == 0 && jv_kind_of(val) == JV_ARRAY) {
             size_t cnt = jv_item_count(val);
@@ -503,6 +606,36 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
 }
 
 /* ------------------------------------------------------------ public -- */
+
+/* the shortest decimal text that round-trips through d, read back as
+ * mant * 10^exp (the same decimal view serde_json/fraction-style
+ * exact arithmetic effectively uses) */
+bool sch_decimal_of_double(double d, int64_t *mant, int *exp) {
+    if (!(d == d) || d == INFINITY || d == -INFINITY) return false;
+    char buf[64];
+    for (int prec = 1; prec <= 17; prec++) {
+        snprintf(buf, sizeof buf, "%.*g", prec, d);
+        if (strtod(buf, NULL) == d) break;
+    }
+    /* [+-] D[.DDD] [e[+-]NN] */
+    const char *p = buf;
+    if (*p == '+' || *p == '-') p++;
+    int64_t m = 0;
+    int e = 0;
+    for (; *p >= '0' && *p <= '9'; p++) m = m * 10 + (*p - '0');
+    if (*p == '.') {
+        for (p++; *p >= '0' && *p <= '9'; p++) {
+            m = m * 10 + (*p - '0');
+            e--;
+        }
+    }
+    if (*p == 'e' || *p == 'E') {
+        e += (int)strtol(p + 1, NULL, 10);
+    }
+    *mant = m;
+    *exp = e;
+    return true;
+}
 
 TEPTRIS_API teptris_status teptris_schema_compile(const char *json, size_t len,
                                                   struct teptris_schema **out,
