@@ -44,13 +44,17 @@ The CLI rides the same engine path:
    its JSON round trip) and from taplo on the same schema: teptris
    rejects `port = 1.0` for `type: integer`, taplo accepts it. The
    TOML reading keeps the document's own types honest.
-3. **datetimes are strings with formats.** TOML offset/local datetimes,
-   dates and times type-check as `string` and satisfy `format`
-   `date-time` / `date` / `time` by kind (a datetime satisfies only
-   `date-time`; a date only `date`). Plain strings are shape-checked
-   against the same RFC 3339 shapes. Because JSON cannot carry a
-   datetime literal, `enum`/`const` entries written as canonical
-   RFC 3339 strings match datetime values by text.
+3. **datetimes are strings with named formats.** TOML datetime values
+   satisfy formats by kind, following the TOML-native format table
+   (tombi's named formats, made canonical here): an offset datetime
+   satisfies `date-time` only; a local datetime satisfies
+   `date-time-local` only; a local time satisfies `time-local` only; a
+   date satisfies `date`. Plain strings are shape-checked against the
+   same shapes — `date-time` requires the RFC 3339 offset, `time`
+   requires it too, the `-local` names forbid it. Because JSON cannot
+   carry a datetime literal, `enum`/`const` entries written as
+   canonical RFC 3339 strings match datetime values by text (both `Z`
+   and `+00:00` spellings of the same instant match).
 4. **nan and inf are floats.** They pass `type: "number"`; `nan` fails
    every ordered comparison (minimum, maximum, exclusive bounds);
    `inf` sits above every finite lower bound and violates every upper
@@ -68,9 +72,9 @@ The CLI rides the same engine path:
 | `additionalItems` | full (`false` / schema); applies beyond the tuple |
 | `dependencies` | full (draft 07): array form as dependentRequired, schema form as dependentSchemas |
 | `uniqueItems`, `minItems`, `maxItems` | full |
-| `minLength`, `maxLength` | full, counted in code points |
+| `minLength`, `maxLength` | full, counted in code points; count keywords accept integral float tokens (`"maxLength": 3.0` is legal JSON Schema and enforced) |
 | `pattern` | practical ECMA subset via a Thompson NFA (linear time, ReDoS-immune by construction): classes, quantifiers, groups, alternation, anchors, `\b/\B`, `\xNN/\uNNNN`, a leading `(?i)` ASCII-fold. Lazy quantifiers are accepted (no boolean-match difference). Backreferences, lookahead and lookbehind are rejected at compile |
-| `format` | enforced set (below); other names are annotations (accepted, not enforced). String values are shape+range checked; TOML datetime values satisfy formats by kind (policy 3) |
+| `format` | enforced set (below); other names are annotations (accepted, not enforced). String values are shape+range checked; TOML datetime values satisfy formats by the policy-3 kind table |
 | `contentEncoding`, `contentMediaType` | enforced pair, the draft 07 lens: `base64` is charset-checked (and decoded) before the `application/json` media check; unknown names on either side are no-ops |
 | `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf` | full; exact integer paths when the constraint is an exact integer token (no float drift on integers); `multipleOf` must be > 0 |
 | `enum`, `const` | full, type-strict deep equality (policy 2/3) |
@@ -78,56 +82,81 @@ The CLI rides the same engine path:
 | `$ref` | local only: `#`, JSON Pointer `#/definitions/...` (`~0`/`~1` unescaped), plain-name `#anchor` fragments from `$anchor`. Recursive refs are memoized; a cycle that consumes no document structure errors as cyclic. Remote/URL refs are rejected — a parser library never touches the network |
 | `$schema`, `$id`, `$comment`, `$defs`, `definitions`, `title`, `description`, `default`, `examples`, `deprecated`, `readOnly`, `writeOnly` | annotations/containers: accepted, ignored |
 | unknown keywords | accepted (2020-12 extension rule) |
-| `unevaluatedProperties`, `unevaluatedItems`, `$dynamicRef`, `$dynamicAnchor`, `$recursiveRef`, `$recursiveAnchor`, `$vocabulary` | **rejected at compile** — never silently ignored; the diag JSON names the keyword |
+| `unevaluatedProperties`, `unevaluatedItems` | full, per the 2020-12 annotation model: annotations from adjacent keywords and from in-place applicators ($ref, allOf, anyOf/oneOf successful branches, if-then-else) evaluate the instance; cousins never share; failed trials annotate nothing |
+| `$dynamicRef`, `$dynamicAnchor`, `$recursiveRef`, `$recursiveAnchor` | full for single-document schemas: the innermost matching anchor on the evaluation path wins; a pointer-form `$dynamicRef` reads exactly like a plain `$ref` |
+| `contentSchema` | full: asserts the decoded content (the parsed value for `application/json`, the decoded text otherwise) |
+| `$vocabulary` | annotation (accepted, ignored — declarative only in practice) |
 
-The enforced format set (every name taplo's validation engine asserts
-on, plus `uuid` and `duration` which taplo's shipped build cannot
-reach): `date-time`, `date`, `time`, `email`, `idn-email`,
-`hostname`, `idn-hostname`, `ipv4`, `ipv6`, `uri`, `iri`,
-`uri-reference`, `iri-reference`, `json-pointer`,
-`relative-json-pointer`, `regex`, `uri-template`, `uuid`,
-`duration`, and taplo's own `semver` / `semver-requirement`.
+The enforced format set (23 names — the taplo parity set plus
+tombi's TOML-native pair): `date-time`, `date`, `time`,
+`date-time-local` (alias `partial-date-time`), `time-local` (alias
+`partial-time`), `email`, `idn-email`, `hostname`, `idn-hostname`,
+`ipv4`, `ipv6`, `uri`, `iri`, `uri-reference`, `iri-reference`,
+`json-pointer`, `relative-json-pointer`, `regex`, `uri-template`,
+`uuid`, `duration`, and taplo's own `semver` /
+`semver-requirement`.
 
-## The taplo audit
+## The 2026 SOTA audit
 
-taplo validates through the Rust `jsonschema` crate pinned at 0.17.1
-with `default-features = false` — a **draft-07 lens**: drafts
-2019-09/2020-12 are not compiled in, so every 2020-12-only keyword is
-silently ignored, and the crate's own tests show draft-06/07 formats
-validate by default. A differential battery (188 cases over every
-keyword class, run against taplo's exact pipeline: DOM → serde JSON →
-the crate) found teptris's enforced surface is a **strict superset**:
+Three engines were audited: taplo's shipped validator (the
+`jsonschema` crate at 0.17.1, draft-07 lens — see the taplo audit
+history in git), **tombi** (Even Better TOML's successor, the
+widely-deployed TOML schema validator of 2026, with its own
+validator), and the modern `jsonschema` crate (0.60.x, the
+spec-exact reference). The decisive evidence is the **official JSON
+Schema test suite** (draft 2020-12) run through teptris:
 
-- teptris enforces keywords taplo silently ignores:
-  `dependentRequired`, `dependentSchemas`, `prefixItems`,
-  `minContains`/`maxContains` (the crate has no 2019-09 build),
-  `uuid`/`duration` formats.
-- teptris names unsupported constructs at compile; taplo ignores them
-  and validates the document as if absent — a verdict that can
-  contradict the schema's intent. teptris refuses loudly instead
-  (`unevaluated*`, `$dynamic*`, `$recursive*`).
-- teptris's `multipleOf` uses exact decimal arithmetic (0.3 is a
-  multiple of 0.1); the crate's binary-fraction math rejects that
-  pair. teptris follows the spec's real-number reading.
-- teptris resolves `$anchor` plain-name fragments; taplo's draft-07
-  lens does not.
-- Datetime `const`/`enum` entries match both `Z` and `+00:00`
-  spellings of the same instant (taplo re-formats through the `time`
-  crate, which spells UTC the second way).
+    python3 scripts/sota_suite_check.py
+    # passed 964/1011, skipped 287 (pinned suite commit ed0ebd31)
 
-Documented divergences (teptris strict where taplo is loose, each a
-deliberate policy above): `1.0` is never `integer`; `nan`/`inf`
-compare as the TOML values they are (taplo's JSON round trip turns
-them into `null`, so numeric constraints silently skip them);
-hostname/idn-hostname accept ASCII alphanumerics where the crate's
-check is Unicode-wide; the `regex` format trials the string in
-teptris's own NFA dialect (backreferences and lookaround reject here
-even though the crate's engine takes them); `format: time` and
-`format: date-time` accept TOML local time/local datetime values by
-kind, which taplo cannot (its JSON text for them carries no offset).
-A schema declaring draft-04 gets taplo's draft-04 semantics only in
-taplo; teptris reads it with the same lens as any other schema
-(boolean-form `exclusiveMinimum` is an annotation here).
+Every representable, in-subset case passes. The 47 misses are the
+documented policy stances, never accidents: `format`/`content`
+assertion (teptris enforces where 2020-12 annotates — the same
+direction as taplo's draft-07 lens and tombi's default
+`format_assertion`), `const`/`enum`/`type` numeric-identity
+strictness (policy 2), and Unicode property escapes in patterns (the
+NFA dialect). The 287 skips are TOML-unrepresentable instances (null,
+non-table roots, `$id` resources, remote refs) — the suite harness
+classifies every skip.
+
+Where teptris stands against tombi and the modern crate:
+
+- **unevaluatedProperties/unevaluatedItems** — implemented per the
+  2020-12 annotation model and now verified against the official
+  suite (the cousin rule, contains-annotates-indices, trial
+  discipline, the if-retention nuance). tombi implements a subset;
+  teptris's verdicts match the suite and the crate everywhere the
+  suite tests.
+- **$dynamicRef/$dynamicAnchor/$recursiveRef/$recursiveAnchor** —
+  full single-document support (innermost-anchor-wins, leaf-override
+  verified against both engines). Pointer-form `$dynamicRef` reads
+  like a plain `$ref`, as the suite defines it.
+- **contentSchema** — asserted (tombi parses it as a schema keyword;
+  teptris enforces the decoded content against it).
+- **`date-time-local` / `time-local`** — tombi's TOML-native named
+  formats, adopted here (aliases `partial-date-time`/`partial-time`);
+  with the policy-3 kind table teptris's datetime/format mapping now
+  agrees with tombi's exactly.
+- **Deliberate divergences from tombi**: teptris follows the spec's
+  implicit-`additionalProperties` semantics — tombi's lint defaults
+  to strict mode (implicit `additionalProperties: false` at tables),
+  which is a linter policy, not schema semantics; teptris stays
+  spec-exact. teptris asserts `content`/`format` names tombi leaves
+  as annotations. teptris never touches the network (tombi fetches
+  schemas over HTTP); a schema carrying `$id` resources or remote
+  `$ref`s is named at compile instead.
+- **taplo remains a strict subset**: everything the 0.3.21 taplo
+  audit established still holds (the draft-07 lens cannot reach
+  `dependentRequired`/`dependentSchemas`/`prefixItems`/
+  `minContains`/`maxContains`/`uuid`/`duration` or any 2020-12
+  keyword; teptris enforces all of it, plus the taplo-only
+  `semver`/`semver-requirement` formats).
+
+The audit also surfaced and fixed two engine bugs the suite exposed:
+`jstring`'s escape path dropped the plain prefix of any JSON string
+carrying an escape (`"foo\nbar"` decoded as `"\nbar"` — masked by
+`properties`, caught by `required`), and count constraints written
+as integral floats (`"maxLength": 3.0`) were silently ignored.
 
 ## Error envelope
 
@@ -162,12 +191,14 @@ pin):
 
 ## Tests
 
-`test/unit/test_schema.cpp` — 62 tests: compile-time rejections, the
-four policies, every keyword class, the recursive-ref memo, the error
-envelope, the taplo parity surface (dependencies, additionalItems,
-tuple items, content checks, the enforced format set, semver), and
-two vendored real-world manifests (`test/fixtures/schema/`: a
-cargo-like and a pyproject-like schema) validated against conforming
-and violating documents.
+`test/unit/test_schema.cpp` — 75 tests: the four policies, every
+keyword class, the recursive-ref memo, the error envelope, the taplo
+parity surface, the 2026 SOTA surface (unevaluated* semantics,
+dynamic refs, contentSchema, the local datetime formats), and two
+vendored real-world manifests (`test/fixtures/schema/`) validated
+against conforming and violating documents.
+`scripts/sota_suite_check.py` — the official JSON Schema test suite
+(draft 2020-12, pinned) through teptris: 964/1011 with every miss a
+documented policy stance and every skip classified.
 `test/fuzz/fuzz_schema.c` — the E3 harness: schema/doc slicing, the
 buffer contracts, compile/free loops under ASan/UBSan.

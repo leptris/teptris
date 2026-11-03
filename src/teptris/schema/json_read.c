@@ -185,10 +185,13 @@ static const char *jstring(jctx *c, size_t *out_len) {
         c->pos++; /* closing quote */
         return s;
     }
-    /* escaped string: rebuild into arena memory */
+    /* escaped string: rebuild into arena memory, carrying the plain
+     * prefix the fast scan already stepped over */
+    size_t plain_len = c->pos - start;
     size_t cap = (c->pos - start) * 4 + 16;
     char *out = teptris_arena_alloc(c->a, cap);
-    size_t n = 0;
+    size_t n = plain_len;
+    memcpy(out, c->src + start, plain_len);
     for (;;) {
         if (c->pos >= c->len) {
             jfail(c, "unterminated string");

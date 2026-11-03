@@ -122,15 +122,16 @@ uploaded by the lane on failure.
 Validate TOML documents against JSON Schemas — the 2020-12 practical
 subset, compiled once and reused across documents, with four
 documented policies for the TOML/JSON incompatibilities (null, integer
-identity, datetimes, non-finite floats). Audited against taplo's
-validation engine: every keyword and format taplo enforces, enforced
-here too (dependencies, additionalItems, tuple items, content
-checks, 21 format names), plus keywords taplo silently ignores
-(dependentRequired/dependentSchemas, minContains/maxContains,
-uuid/duration). Unsupported constructs are rejected at compile, never
-silently ignored; errors come back as
+identity, datetimes, non-finite floats). Audited against the 2026
+state of the art — the official JSON Schema test suite (964/1011,
+every miss a documented stance), tombi, and the modern jsonschema
+crate: `unevaluatedProperties`/`unevaluatedItems` with full
+annotation semantics, `$dynamicRef`/`$recursiveRef`, `contentSchema`,
+and 23 enforced format names including tombi's TOML-native
+`date-time-local`/`time-local`. Out-of-subset constructs are named at
+compile, never silently ignored; errors come back as
 `{"path", "schemaPath", "message"}` lists. The full contract, the
-taplo audit, keyword table and runtime surfaces live in
+SOTA audit, keyword table and runtime surfaces live in
 [`SCHEMAS.md`](SCHEMAS.md).
 
 ```sh

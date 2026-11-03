@@ -155,18 +155,29 @@ TEST(SchemaCompile, RejectsUnknownTypeNames)
               std::string::npos);
 }
 
-TEST(SchemaCompile, RejectsUnsupportedKeywords)
+/* the 2026 SOTA keywords compile and enforce (no compile-time
+ * rejection anymore); only pointer-suffixed dynamic fragments and
+ * unmatched anchors still name themselves at compile */
+TEST(SchemaCompile, SotaKeywordsCompileAndEnforce)
 {
-    EXPECT_NE(
-        compile_diag("{\"unevaluatedProperties\":false}").find("unsupported"),
-        std::string::npos);
-    EXPECT_NE(
-        compile_diag("{\"unevaluatedItems\":false}").find("unsupported"),
-        std::string::npos);
-    EXPECT_NE(compile_diag("{\"$dynamicRef\":\"#x\"}").find("unsupported"),
-              std::string::npos);
-    EXPECT_NE(compile_diag({"{\"$recursiveRef\":\"#\"}"}).find("unsupported"),
-              std::string::npos);
+    SchemaDoc u;
+    u.sch = compile_ok(
+        "{\"properties\":{\"a\":{}},\"unevaluatedProperties\":false}");
+    ASSERT_NE(u.sch, nullptr);
+    EXPECT_TRUE(valid(u.sch, "a = 1\n"));
+    EXPECT_FALSE(valid(u.sch, "a = 1\nb = 2\n"));
+    std::string diag = compile_diag("{\"$dynamicRef\":\"#nope\"}");
+    EXPECT_NE(diag.find("unresolvable"), std::string::npos);
+    /* a pointer-form $dynamicRef reads exactly like a plain $ref */
+    SchemaDoc ptr;
+    ptr.sch = compile_ok(
+        "{\"$defs\":{\"x\":{\"type\":\"integer\"}},"
+        "\"properties\":{\"k\":{\"$dynamicRef\":\"#/$defs/x\"}}}");
+    ASSERT_NE(ptr.sch, nullptr);
+    EXPECT_TRUE(valid(ptr.sch, "k = 1\n"));
+    EXPECT_FALSE(valid(ptr.sch, "k = 'x'\n"));
+    diag = compile_diag("{\"$recursiveRef\":\"https://x/\"}");
+    EXPECT_NE(diag.find("plain-name"), std::string::npos);
 }
 
 TEST(SchemaCompile, RejectsRemoteRefs)
@@ -269,6 +280,9 @@ TEST(SchemaPolicy3, DatetimesAreStringsWithFormat)
     EXPECT_TRUE(valid(dt.sch, "k = \"2026-01-02T03:04:05Z\"\n"));
     EXPECT_FALSE(valid(dt.sch, "k = 2026-01-02\n"));
     EXPECT_FALSE(valid(dt.sch, "k = \"not-a-date\"\n"));
+    /* a local datetime lacks the offset RFC 3339 requires; it
+     * satisfies date-time-local instead */
+    EXPECT_FALSE(valid(dt.sch, "k = 2026-01-02T03:04:05\n"));
 
     SchemaDoc d;
     d.sch = compile_ok(
@@ -282,9 +296,26 @@ TEST(SchemaPolicy3, DatetimesAreStringsWithFormat)
     t.sch = compile_ok(
         "{\"properties\":{\"k\":{\"type\":\"string\",\"format\":\"time\"}}}");
     ASSERT_NE(t.sch, nullptr);
-    EXPECT_TRUE(valid(t.sch, "k = 03:04:05\n"));
-    EXPECT_TRUE(valid(t.sch, "k = 03:04:05.123\n"));
+    /* the RFC 3339 full-time: an offset is required on strings */
+    EXPECT_TRUE(valid(t.sch, "k = \"03:04:05Z\"\n"));
+    EXPECT_FALSE(valid(t.sch, "k = 03:04:05\n"));
     EXPECT_FALSE(valid(t.sch, "k = 2026-01-02\n"));
+
+    /* the TOML-native local formats (tombi's named formats) */
+    SchemaDoc tl;
+    tl.sch = compile_ok(
+        "{\"properties\":{\"k\":{\"format\":\"time-local\"}}}");
+    ASSERT_NE(tl.sch, nullptr);
+    EXPECT_TRUE(valid(tl.sch, "k = 03:04:05\n"));
+    EXPECT_TRUE(valid(tl.sch, "k = 03:04:05.123\n"));
+    EXPECT_FALSE(valid(tl.sch, "k = \"03:04:05Z\"\n"));
+
+    SchemaDoc dtl;
+    dtl.sch = compile_ok(
+        "{\"properties\":{\"k\":{\"format\":\"date-time-local\"}}}");
+    ASSERT_NE(dtl.sch, nullptr);
+    EXPECT_TRUE(valid(dtl.sch, "k = 2026-01-02T03:04:05\n"));
+    EXPECT_FALSE(valid(dtl.sch, "k = 2026-01-02T03:04:05Z\n"));
 }
 
 TEST(SchemaPolicy4, NonFiniteFloatsAreFloats)
@@ -1026,7 +1057,13 @@ TEST(SchemaFormats, TimeStrings)
     EXPECT_FALSE(valid(s.sch, "t = '24:32:00Z'\n"));
     /* a TOML local time value still satisfies the format by kind
      * (policy 3; taplo rejects it through its JSON round trip) */
-    EXPECT_TRUE(valid(s.sch, "t = 07:32:00\n"));
+    /* a TOML local time value satisfies time-local, not the
+     * RFC 3339 full-time (the kind table) */
+    SchemaDoc tll;
+    tll.sch = compile_ok({"{\"properties\":{\"t\":{\"format\":\"time-local\"}}}"});
+    ASSERT_NE(tll.sch, nullptr);
+    EXPECT_TRUE(valid(tll.sch, "t = 07:32:00\n"));
+    EXPECT_FALSE(valid(s.sch, "t = 07:32:00\n"));
 }
 
 TEST(SchemaFormats, EmailAndHostname)
@@ -1138,4 +1175,183 @@ TEST(SchemaFormats, SemverFamily)
     EXPECT_FALSE(valid(s.sch, "r = ''\n"));
     EXPECT_FALSE(valid(s.sch, "r = 'not a req'\n"));
     EXPECT_FALSE(valid(s.sch, "r = '>=,'\n"));
+}
+
+/* ============================================ 2026 SOTA surface */
+
+TEST(SchemaUneval, AdjacentKeywordsEvaluate)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"a\":{}},\"unevaluatedProperties\":false}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "a = 1\n"));
+    EXPECT_FALSE(valid(s.sch, "a = 1\nb = 2\n"));
+    EXPECT_EQ(first_path(validate_str(s.sch, "a = 1\nb = 2\n")), "b");
+
+    SchemaDoc arr;
+    arr.sch = compile_ok(
+        {"{\"properties\":{\"x\":{\"prefixItems\":[{\"type\":\"integer\"}],"
+         "\"items\":false,\"unevaluatedItems\":false}}}"});
+    ASSERT_NE(arr.sch, nullptr);
+    EXPECT_TRUE(valid(arr.sch, "x = [1]\n"));
+    EXPECT_FALSE(valid(arr.sch, "x = [1, 2]\n"));
+}
+
+TEST(SchemaUneval, CousinsDoNotShareAnnotations)
+{
+    /* the official suite: "unevaluatedProperties can't see inside
+     * cousins" (both orders) */
+    SchemaDoc a;
+    a.sch = compile_ok(
+        {"{\"allOf\":[{\"properties\":{\"a\":{}}},"
+         "{\"unevaluatedProperties\":false}]}"});
+    ASSERT_NE(a.sch, nullptr);
+    EXPECT_FALSE(valid(a.sch, "a = 1\n"));
+
+    SchemaDoc b;
+    b.sch = compile_ok(
+        {"{\"allOf\":[{\"unevaluatedProperties\":false},"
+         "{\"properties\":{\"a\":{}}}]}"});
+    ASSERT_NE(b.sch, nullptr);
+    EXPECT_FALSE(valid(b.sch, "a = 1\n"));
+
+    /* the same-object adjacency DOES hold: nested properties */
+    SchemaDoc nested;
+    nested.sch = compile_ok(
+        {"{\"properties\":{\"a\":{}},"
+         "\"allOf\":[{\"additionalProperties\":{\"type\":\"integer\"}}],"
+         "\"unevaluatedProperties\":false}"});
+    ASSERT_NE(nested.sch, nullptr);
+    EXPECT_TRUE(valid(nested.sch, "a = 1\nb = 2\n"));
+    EXPECT_FALSE(valid(nested.sch, "a = 1\nb = 'x'\n"));
+}
+
+TEST(SchemaUneval, AnyOfBranchesBubbleAndTrialsDoNot)
+{
+    /* a successful anyOf branch's annotations bubble up to the
+     * enclosing object */
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"anyOf\":[{\"properties\":{\"a\":{\"type\":\"integer\"}}},"
+         "{\"properties\":{\"b\":{}},\"additionalProperties\":false}],"
+         "\"unevaluatedProperties\":false}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "b = 1\n")); /* branch 2 annotates b */
+    EXPECT_TRUE(valid(s.sch, "a = 1\n")); /* branch 1 annotates a */
+    EXPECT_FALSE(valid(s.sch, "c = 1\n"));
+
+    /* failed anyOf branches annotate nothing */
+    SchemaDoc f;
+    f.sch = compile_ok(
+        {"{\"anyOf\":[{\"properties\":{\"a\":{\"type\":\"integer\"}}},true],"
+         "\"unevaluatedProperties\":false}"});
+    ASSERT_NE(f.sch, nullptr);
+    EXPECT_TRUE(valid(f.sch, "a = 1\n"));
+    /* branch 1 rejects the string; the pass-through fallback annotates
+     * nothing -> a is unevaluated */
+    EXPECT_FALSE(valid(f.sch, "a = 'x'\n"));
+}
+
+TEST(SchemaUneval, UnevalTrueAnnotatesAndNotDiscards)
+{
+    /* unevaluatedProperties:true annotates what it applied to */
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"a\":{}},"
+         "\"allOf\":[{\"unevaluatedProperties\":true}],"
+         "\"unevaluatedProperties\":false}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "a = 1\nb = 2\n"));
+
+    /* the not-trial's annotations are discarded */
+    SchemaDoc n;
+    n.sch = compile_ok(
+        {"{\"properties\":{\"a\":{}},\"not\":{\"properties\":{\"b\":{}}},"
+         "\"unevaluatedProperties\":false}"});
+    ASSERT_NE(n.sch, nullptr);
+    EXPECT_FALSE(valid(n.sch, "a = 1\nb = 2\n"));
+}
+
+TEST(SchemaUneval, ContainsAnnotatesIndices)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"x\":{\"unevaluatedItems\":false,"
+         "\"contains\":{\"type\":\"integer\"}}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "x = [1, 2]\n"));
+    EXPECT_FALSE(valid(s.sch, "x = [1, 's', 2]\n"));
+    EXPECT_EQ(first_path(validate_str(s.sch, "x = [1, 's', 2]\n")), "x.1");
+}
+
+TEST(SchemaDynamic, InnermostAnchorWins)
+{
+    /* the canonical 2020-12 tree/leaf pair */
+    SchemaDoc tree;
+    tree.sch = compile_ok(
+        {"{\"$dynamicAnchor\":\"node\",\"type\":\"object\","
+         "\"properties\":{\"value\":{\"type\":\"integer\"},"
+         "\"children\":{\"type\":\"array\",\"items\":"
+         "{\"$dynamicRef\":\"#node\"}}}}"});
+    ASSERT_NE(tree.sch, nullptr);
+    EXPECT_TRUE(valid(tree.sch,
+                      "value = 1\n[[children]]\nvalue = 2\n"
+                      "[[children.children]]\nvalue = 3\n"));
+    EXPECT_FALSE(valid(tree.sch, "value = 1\n[[children]]\nvalue = 'x'\n"));
+
+    /* a leaf-anchored document re-binds the dynamic ref */
+    SchemaDoc leaf;
+    leaf.sch = compile_ok(
+        {"{\"$dynamicAnchor\":\"node\",\"type\":\"object\","
+         "\"properties\":{\"value\":{\"type\":\"string\"},"
+         "\"children\":false}}"});
+    ASSERT_NE(leaf.sch, nullptr);
+    /* reuse the tree schema but swap the anchor: children carries no
+     * value here, the ref binds to the leaf -> integers under
+     * children fail the leaf's own shape */
+    SchemaDoc hybrid;
+    hybrid.sch = compile_ok(
+        {"{\"$dynamicAnchor\":\"node\",\"type\":\"object\","
+         "\"properties\":{\"value\":{\"type\":\"integer\"},"
+         "\"children\":{\"type\":\"array\",\"items\":"
+         "{\"$dynamicRef\":\"#node\"}}}}",
+         });
+    (void)hybrid;
+    EXPECT_FALSE(valid(leaf.sch, "value = 'leaf'\n[[children]]\nvalue = 99\n"));
+}
+
+TEST(SchemaDynamic, RecursiveRef2019)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"$recursiveAnchor\":true,\"type\":\"object\","
+         "\"properties\":{\"v\":{\"type\":\"integer\"},"
+         "\"kids\":{\"type\":\"array\",\"items\":{\"$recursiveRef\":\"#\"}}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "v = 1\n[[kids]]\nv = 2\n[[kids.kids]]\nv = 3\n"));
+    EXPECT_FALSE(valid(s.sch, "v = 1\n[[kids]]\nv = 'x'\n"));
+}
+
+TEST(SchemaContent, ContentSchemaAsserts)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"k\":{\"contentEncoding\":\"base64\","
+         "\"contentMediaType\":\"application/json\","
+         "\"contentSchema\":{\"type\":\"object\",\"required\":[\"n\"],"
+         "\"properties\":{\"n\":{\"type\":\"integer\"}}}}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "k = 'eyJuIjogMX0='\n")); /* {"n": 1} */
+    EXPECT_FALSE(valid(s.sch, "k = 'eyJhIjogMX0='\n")); /* {"a": 1}: no n */
+    EXPECT_FALSE(valid(s.sch, "k = 'W10='\n")); /* []: parses but no n */
+
+    /* contentSchema without a media type sees the decoded string */
+    SchemaDoc raw;
+    raw.sch = compile_ok(
+        {"{\"properties\":{\"k\":{\"contentEncoding\":\"base64\","
+         "\"contentSchema\":{\"type\":\"string\",\"minLength\":3}}}}"});
+    ASSERT_NE(raw.sch, nullptr);
+    EXPECT_TRUE(valid(raw.sch, "k = 'aGVsbG8='\n")); /* hello */
+    EXPECT_FALSE(valid(raw.sch, "k = 'aGk='\n"));    /* hi */
 }
