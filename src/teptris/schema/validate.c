@@ -242,6 +242,17 @@ static void frame_merge_up(vctx *vc) {
     }
 }
 
+/* pop the top frame: bubble its annotations into the parent, then
+ * release its arrays (a slot above n_frames would never be revisited
+ * by frames_free) */
+static void frame_pop(vctx *vc) {
+    frame_merge_up(vc);
+    struct eval_frame *f = &vc->frames[vc->n_frames - 1];
+    free(f->keys);
+    free(f->idx);
+    vc->n_frames--;
+}
+
 static bool frame_key_seen(const struct eval_frame *f, const char *key) {
     for (size_t i = 0; i < f->n_keys; i++) {
         if (strcmp(f->keys[i], key) == 0) return true;
@@ -728,8 +739,7 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
     if (n->is_false) {
         verr(vc, "no value is allowed here (the false schema)");
         vc->n_scopes = scopes_base;
-        frame_merge_up(vc);
-        vc->n_frames--;
+        frame_pop(vc);
         return;
     }
 
@@ -1114,8 +1124,7 @@ static void val(vctx *vc, sch_node *n, const sch_svalue *v) {
     }
 
     vc->n_scopes = scopes_base;
-    frame_merge_up(vc);
-    vc->n_frames--;
+    frame_pop(vc);
 }
 
 /* -------------------------------------------------- DOM conversion -- */
