@@ -1380,26 +1380,27 @@ TEST(SchemaCompile, VocabularyGating)
 {
     /* a custom metaschema that keeps only core + applicator: the
      * validation vocabulary's keywords become annotations */
-    const char *meta_path = "/tmp/meta-no-validation.json";
+    /* cwd-relative: the CI matrix runs this on POSIX and Windows */
+    const char *meta_path = "teptris_meta_no_validation.json";
     {
         std::FILE *f = std::fopen(meta_path, "wb");
         ASSERT_NE(f, nullptr);
         const char *meta =
             "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\","
-            "\"$id\":\"meta-no-validation.json\","
+            "\"$id\":\"teptris_meta_no_validation.json\","
             "\"$vocabulary\":{"
             "\"https://json-schema.org/draft/2020-12/vocab/core\":true,"
             "\"https://json-schema.org/draft/2020-12/vocab/applicator\":true},"
             "\"$dynamicAnchor\":\"meta\","
-            "\"allOf\":[{\"$ref\":\"meta-core.json\"}]}";
+            "\"allOf\":[{\"$ref\":\"teptris_meta_core.json\"}]}";
         std::fputs(meta, f);
         std::fclose(f);
     }
     {
-        std::FILE *f = std::fopen("/tmp/meta-core.json", "wb");
+        std::FILE *f = std::fopen("teptris_meta_core.json", "wb");
         ASSERT_NE(f, nullptr);
         const char *core =
-            "{\"$id\":\"meta-core.json\","
+            "{\"$id\":\"teptris_meta_core.json\","
             "\"$anchor\":\"meta\","
             "\"type\":\"object\"}";
         std::fputs(core, f);
@@ -1407,10 +1408,10 @@ TEST(SchemaCompile, VocabularyGating)
     }
     SchemaDoc s;
     s.sch = compile_ex_ok(
-        "{\"$schema\":\"meta-no-validation.json\","
+        "{\"$schema\":\"teptris_meta_no_validation.json\","
         "\"properties\":{\"k\":false},"
         "\"type\":\"array\",\"minProperties\":7}",
-        "/tmp");
+        ".");
     ASSERT_NE(s.sch, nullptr);
     /* applicator + boolean schemas still assert */
     EXPECT_FALSE(valid(s.sch, "k = 1\n"));
@@ -1418,7 +1419,7 @@ TEST(SchemaCompile, VocabularyGating)
      * minProperties are annotations */
     EXPECT_TRUE(valid(s.sch, "a = 1\nb = 2\n"));
     std::remove(meta_path);
-    std::remove("/tmp/meta-core.json");
+    std::remove("teptris_meta_core.json");
 }
 
 TEST(SchemaDynamic, RecursiveRef2019)
@@ -1446,7 +1447,7 @@ TEST(SchemaDynamic, OutermostResourceWins)
         "\"properties\":{\"data\":true,"
         "\"children\":{\"type\":\"array\",\"items\":"
         "{\"$dynamicRef\":\"#node\"}}}}}}",
-        "/tmp");
+        ".");
     ASSERT_NE(s.sch, nullptr);
     EXPECT_TRUE(valid(s.sch, "children = [{ data = 1 }]\n"));
     EXPECT_FALSE(valid(s.sch, "children = [{ daat = 1 }]\n"));
@@ -1473,7 +1474,7 @@ TEST(SchemaDynamic, MultipleDynamicPaths)
         "\"stringList\":{\"$id\":\"stringList\",\"$defs\":{"
         "\"itemType\":{\"$dynamicAnchor\":\"itemType\","
         "\"type\":\"string\"}},\"$ref\":\"genericList\"}}}",
-        "/tmp");
+        ".");
     ASSERT_NE(s.sch, nullptr);
     EXPECT_TRUE(valid(s.sch, "kindOfList = 'numbers'\nlist = [1.1]\n"));
     EXPECT_FALSE(valid(s.sch, "kindOfList = 'numbers'\nlist = ['foo']\n"));
