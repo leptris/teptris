@@ -2,6 +2,7 @@
  * rejected, never ignored), the four TOML/JSON incompatibility
  * policies, every supported keyword class, the recursive-$ref memo,
  * the error envelope shape, and the validate/validate_doc parity. */
+#include <cstdio>
 #include <cstring>
 #include <string>
 
@@ -28,6 +29,26 @@ teptris_schema *compile_ok(const std::string &json)
     size_t dlen = 0;
     teptris_status st = teptris_schema_compile(json.data(), json.size(), &sch,
                                                &diag, &dlen);
+    teptris_diag_free(diag);
+    EXPECT_EQ(st, TEPTRIS_OK) << "schema: " << json;
+    if (st != TEPTRIS_OK) {
+        teptris_schema_free(sch);
+        return nullptr;
+    }
+    return sch;
+}
+
+/* compile helper with a base directory: resources resolve relative
+ * to it (file-backed), exactly like the CLI */
+teptris_schema *compile_ex_ok(const std::string &json,
+                              const std::string &base_dir)
+{
+    teptris_schema *sch = nullptr;
+    char *diag = nullptr;
+    size_t dlen = 0;
+    teptris_status st = teptris_schema_compile_ex(
+        json.data(), json.size(), base_dir.data(), base_dir.size(), &sch,
+        &diag, &dlen);
     teptris_diag_free(diag);
     EXPECT_EQ(st, TEPTRIS_OK) << "schema: " << json;
     if (st != TEPTRIS_OK) {
@@ -145,14 +166,18 @@ TEST(SchemaCompile, RejectsBrokenJson)
 
 TEST(SchemaCompile, RejectsUnknownTypeNames)
 {
-    EXPECT_NE(compile_diag("{\"type\":\"null\"}").find("unknown type"),
-              std::string::npos);
+
     SchemaDoc ok;
     ok.sch = compile_ok("{\"type\":[\"string\",\"number\"]}");
     ASSERT_NE(ok.sch, nullptr);
-    /* a quoted "null" inside the array is a type NAME, not absence */
-    EXPECT_NE(compile_diag("{\"type\":[\"string\",\"null\"]}").find("unknown"),
-              std::string::npos);
+    /* "null" is a real type name now; only unknown names reject */
+    SchemaDoc nl;
+    nl.sch = compile_ok(
+        "{\"properties\":{\"k\":{\"type\":[\"string\",\"null\"]}}}");
+    ASSERT_NE(nl.sch, nullptr);
+    /* policy 1: null matches no TOML value; a string matches */
+    EXPECT_TRUE(valid(nl.sch, "k = 'x'\n"));
+    EXPECT_FALSE(valid(nl.sch, "k = 1\n"));
 }
 
 /* the 2026 SOTA keywords compile and enforce (no compile-time
@@ -176,8 +201,10 @@ TEST(SchemaCompile, SotaKeywordsCompileAndEnforce)
     ASSERT_NE(ptr.sch, nullptr);
     EXPECT_TRUE(valid(ptr.sch, "k = 1\n"));
     EXPECT_FALSE(valid(ptr.sch, "k = 'x'\n"));
+    /* a URI-form $recursiveRef reads exactly like a plain $ref, so a
+     * network target hits the no-network policy */
     diag = compile_diag("{\"$recursiveRef\":\"https://x/\"}");
-    EXPECT_NE(diag.find("plain-name"), std::string::npos);
+    EXPECT_NE(diag.find("remote"), std::string::npos);
 }
 
 TEST(SchemaCompile, RejectsRemoteRefs)
@@ -250,8 +277,10 @@ TEST(SchemaPolicy2, IntegerIsTomlNative)
     ASSERT_NE(s.sch, nullptr);
     EXPECT_TRUE(valid(s.sch, "k = 1\n"));
     EXPECT_TRUE(valid(s.sch, "k = -9223372036854775808\n"));
-    EXPECT_FALSE(valid(s.sch, "k = 1.0\n")); /* float never integer */
-    EXPECT_FALSE(valid(s.sch, "k = 1e3\n"));
+    /* the 2020-12 rule: a float with a zero fractional part is an
+     * integer (the official suite tests it; 1e3 too) */
+    EXPECT_TRUE(valid(s.sch, "k = 1.0\n"));
+    EXPECT_TRUE(valid(s.sch, "k = 1e3\n"));
     /* "number" admits both, keeping int identity */
     SchemaDoc n;
     n.sch = compile_ok("{\"properties\":{\"k\":{\"type\":\"number\"}}}");
@@ -454,9 +483,10 @@ TEST(SchemaArray, UniqueItems)
     s.sch = compile_ok("{\"properties\":{\"k\":{\"uniqueItems\":true}}}");
     ASSERT_NE(s.sch, nullptr);
     EXPECT_TRUE(valid(s.sch, "k = [1, 2, \"a\"]\n"));
-    /* type-strict equality: 1 and 1.0 differ */
-    EXPECT_TRUE(valid(s.sch, "k = [1, 1.0]\n"));
+    /* numeric identity: 1 and 1.0 are equal (bools stay distinct) */
+    EXPECT_FALSE(valid(s.sch, "k = [1, 1.0]\n"));
     EXPECT_FALSE(valid(s.sch, "k = [1, 1]\n"));
+    EXPECT_TRUE(valid(s.sch, "k = [1, true]\n"));
     EXPECT_FALSE(valid(s.sch, "k = [{a = 1}, {a = 1}]\n"));
 }
 
@@ -549,8 +579,8 @@ TEST(SchemaValues, EnumIsTypeStrict)
     EXPECT_TRUE(valid(s.sch, "k = 1\n"));
     EXPECT_TRUE(valid(s.sch, "k = \"one\"\n"));
     EXPECT_TRUE(valid(s.sch, "k = true\n"));
-    /* 1.0 is a float; the enum's 1 is an integer */
-    EXPECT_FALSE(valid(s.sch, "k = 1.0\n"));
+    /* numeric identity across the enum (bools and strings distinct) */
+    EXPECT_TRUE(valid(s.sch, "k = 1.0\n"));
     EXPECT_FALSE(valid(s.sch, "k = \"1\"\n"));
 }
 
@@ -1321,6 +1351,76 @@ TEST(SchemaDynamic, InnermostAnchorWins)
     EXPECT_FALSE(valid(leaf.sch, "value = 'leaf'\n[[children]]\nvalue = 99\n"));
 }
 
+TEST(SchemaCompile, BuiltinMetaschemas)
+{
+    /* the vendored metaschemas resolve as built-in resources: a
+     * parser library never touches the network */
+    SchemaDoc d20;
+    d20.sch = compile_ok(
+        "{\"$ref\":\"https://json-schema.org/draft/2020-12/schema\"}");
+    ASSERT_NE(d20.sch, nullptr);
+    EXPECT_TRUE(valid(d20.sch, "type = 'string'\n"));
+    EXPECT_FALSE(valid(d20.sch, "type = 123\n"));
+
+    SchemaDoc d19;
+    d19.sch = compile_ok(
+        "{\"$ref\":\"https://json-schema.org/draft/2019-09/schema\"}");
+    ASSERT_NE(d19.sch, nullptr);
+    EXPECT_TRUE(valid(d19.sch, "title = 'x'\n"));
+
+    /* the legacy draft-07 URL with the empty-fragment form */
+    SchemaDoc d7;
+    d7.sch = compile_ok(
+        "{\"$ref\":\"http://json-schema.org/draft-07/schema#\"}");
+    ASSERT_NE(d7.sch, nullptr);
+    EXPECT_TRUE(valid(d7.sch, "description = 'd'\n"));
+}
+
+TEST(SchemaCompile, VocabularyGating)
+{
+    /* a custom metaschema that keeps only core + applicator: the
+     * validation vocabulary's keywords become annotations */
+    const char *meta_path = "/tmp/meta-no-validation.json";
+    {
+        std::FILE *f = std::fopen(meta_path, "wb");
+        ASSERT_NE(f, nullptr);
+        const char *meta =
+            "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\","
+            "\"$id\":\"meta-no-validation.json\","
+            "\"$vocabulary\":{"
+            "\"https://json-schema.org/draft/2020-12/vocab/core\":true,"
+            "\"https://json-schema.org/draft/2020-12/vocab/applicator\":true},"
+            "\"$dynamicAnchor\":\"meta\","
+            "\"allOf\":[{\"$ref\":\"meta-core.json\"}]}";
+        std::fputs(meta, f);
+        std::fclose(f);
+    }
+    {
+        std::FILE *f = std::fopen("/tmp/meta-core.json", "wb");
+        ASSERT_NE(f, nullptr);
+        const char *core =
+            "{\"$id\":\"meta-core.json\","
+            "\"$anchor\":\"meta\","
+            "\"type\":\"object\"}";
+        std::fputs(core, f);
+        std::fclose(f);
+    }
+    SchemaDoc s;
+    s.sch = compile_ex_ok(
+        "{\"$schema\":\"meta-no-validation.json\","
+        "\"properties\":{\"k\":false},"
+        "\"type\":\"array\",\"minProperties\":7}",
+        "/tmp");
+    ASSERT_NE(s.sch, nullptr);
+    /* applicator + boolean schemas still assert */
+    EXPECT_FALSE(valid(s.sch, "k = 1\n"));
+    /* the validation vocabulary is out of the dialect: type and
+     * minProperties are annotations */
+    EXPECT_TRUE(valid(s.sch, "a = 1\nb = 2\n"));
+    std::remove(meta_path);
+    std::remove("/tmp/meta-core.json");
+}
+
 TEST(SchemaDynamic, RecursiveRef2019)
 {
     SchemaDoc s;
@@ -1331,6 +1431,73 @@ TEST(SchemaDynamic, RecursiveRef2019)
     ASSERT_NE(s.sch, nullptr);
     EXPECT_TRUE(valid(s.sch, "v = 1\n[[kids]]\nv = 2\n[[kids.kids]]\nv = 3\n"));
     EXPECT_FALSE(valid(s.sch, "v = 1\n[[kids]]\nv = 'x'\n"));
+}
+
+TEST(SchemaDynamic, OutermostResourceWins)
+{
+    /* appendix C, embedded: the outermost resource that defines the
+     * anchor wins, so the strict guard applies at every depth */
+    SchemaDoc s;
+    s.sch = compile_ex_ok(
+        "{\"$id\":\"https://x/strict\",\"$dynamicAnchor\":\"node\","
+        "\"$ref\":\"tree\",\"unevaluatedProperties\":false,"
+        "\"$defs\":{\"tree\":{\"$id\":\"tree\","
+        "\"$dynamicAnchor\":\"node\",\"type\":\"object\","
+        "\"properties\":{\"data\":true,"
+        "\"children\":{\"type\":\"array\",\"items\":"
+        "{\"$dynamicRef\":\"#node\"}}}}}}",
+        "/tmp");
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "children = [{ data = 1 }]\n"));
+    EXPECT_FALSE(valid(s.sch, "children = [{ daat = 1 }]\n"));
+    EXPECT_FALSE(valid(s.sch,
+                      "children = [{ children = [{ daat = 1 }] }]\n"));
+}
+
+TEST(SchemaDynamic, MultipleDynamicPaths)
+{
+    SchemaDoc s;
+    s.sch = compile_ex_ok(
+        "{\"$id\":\"https://x/main\","
+        "\"if\":{\"properties\":{\"kindOfList\":{\"const\":\"numbers\"}},"
+        "\"required\": [\"kindOfList\"]},"
+        "\"then\":{\"$ref\":\"numberList\"},"
+        "\"else\":{\"$ref\":\"stringList\"},"
+        "\"$defs\":{"
+        "\"genericList\":{\"$id\":\"genericList\","
+        "\"properties\":{\"list\":{\"items\":"
+        "{\"$dynamicRef\":\"#itemType\"}}}},"
+        "\"numberList\":{\"$id\":\"numberList\",\"$defs\":{"
+        "\"itemType\":{\"$dynamicAnchor\":\"itemType\","
+        "\"type\":\"number\"}},\"$ref\":\"genericList\"},"
+        "\"stringList\":{\"$id\":\"stringList\",\"$defs\":{"
+        "\"itemType\":{\"$dynamicAnchor\":\"itemType\","
+        "\"type\":\"string\"}},\"$ref\":\"genericList\"}}}",
+        "/tmp");
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "kindOfList = 'numbers'\nlist = [1.1]\n"));
+    EXPECT_FALSE(valid(s.sch, "kindOfList = 'numbers'\nlist = ['foo']\n"));
+    EXPECT_FALSE(valid(s.sch, "kindOfList = 'strings'\nlist = [1.1]\n"));
+    EXPECT_TRUE(valid(s.sch, "kindOfList = 'strings'\nlist = ['foo']\n"));
+}
+
+TEST(SchemaDynamic, SkipsIntermediateResources)
+{
+    /* the reference path enters the item resource directly, skipping
+     * bar: the item's own bookend anchor applies (integer) */
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"$id\":\"https://x/main\",\"type\":\"object\","
+         "\"properties\":{\"bar-item\":{\"$ref\":\"item\"}},"
+         "\"$defs\":{\"bar\":{\"$id\":\"bar\",\"type\":\"array\","
+         "\"items\":{\"$ref\":\"item\"}},"
+         "\"item\":{\"$id\":\"item\",\"type\":\"object\","
+         "\"properties\":{\"content\":{\"$dynamicRef\":\"#content\"}},"
+         "\"$defs\":{\"defaultContent\":{\"$dynamicAnchor\":\"content\","
+         "\"type\":\"integer\"}}}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "'bar-item' = { content = 42 }\n"));
+    EXPECT_FALSE(valid(s.sch, "'bar-item' = { content = 'value' }\n"));
 }
 
 TEST(SchemaContent, ContentSchemaAsserts)
