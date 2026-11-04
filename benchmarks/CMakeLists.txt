@@ -84,3 +84,9 @@ target_compile_definitions(bench_parse PRIVATE ${BENCH_DEFS})
 set_target_properties(bench_parse PROPERTIES CXX_STANDARD 17
     CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
 target_compile_options(bench_parse PRIVATE -O2)
+
+add_executable(bench_schema bench_schema.cpp)
+target_link_libraries(bench_schema PRIVATE teptris)
+set_target_properties(bench_schema PROPERTIES CXX_STANDARD 17
+    CXX_STANDARD_REQUIRED ON CXX_EXTENSIONS OFF)
+target_compile_options(bench_schema PRIVATE -O2)
