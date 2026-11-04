@@ -41,6 +41,13 @@ typedef struct {
         size_t n_keys, cap_keys;
         size_t *idx;
         size_t n_idx, cap_idx;
+        /* stamp-validated open-addressing indexes: a slot holds the
+         * entry's position when inserted, so a trial's truncate
+         * (n_keys rewind) self-invalidates without a rebuild */
+        struct { const char *key; size_t stamp; } *khash;
+        size_t khash_cap; /* power of two, 0 = absent */
+        struct { size_t val; size_t stamp; } *ihash;
+        size_t ihash_cap;
     } *frames;
     int n_frames, cap_frames;
     /* dynamic-scope stack for $dynamicRef / $recursiveRef: one frame
@@ -206,6 +213,9 @@ static bool frame_grow(vctx *vc) {
     return true;
 }
 
+static void frame_khash_insert(struct eval_frame *f, const char *key);
+static void frame_ihash_insert(struct eval_frame *f, size_t idx);
+
 static bool frame_push(vctx *vc, const sch_svalue *v) {
     if (!frame_grow(vc)) return false;
     struct eval_frame *f = &vc->frames[vc->n_frames++];
@@ -233,6 +243,9 @@ static void frame_merge_up(vctx *vc) {
         }
         memcpy(p->keys + p->n_keys, f->keys, f->n_keys * sizeof(*f->keys));
         p->n_keys += f->n_keys;
+        for (size_t i = p->n_keys - f->n_keys; i < p->n_keys; i++) {
+            frame_khash_insert(p, p->keys[i]);
+        }
     }
     if (f->n_idx > 0) {
         if (p->n_idx + f->n_idx > p->cap_idx) {
@@ -245,6 +258,9 @@ static void frame_merge_up(vctx *vc) {
         }
         memcpy(p->idx + p->n_idx, f->idx, f->n_idx * sizeof(*f->idx));
         p->n_idx += f->n_idx;
+        for (size_t i = p->n_idx - f->n_idx; i < p->n_idx; i++) {
+            frame_ihash_insert(p, p->idx[i]);
+        }
     }
 }
 
@@ -256,21 +272,109 @@ static void frame_pop(vctx *vc) {
     struct eval_frame *f = &vc->frames[vc->n_frames - 1];
     free(f->keys);
     free(f->idx);
+    free(f->khash);
+    free(f->ihash);
     vc->n_frames--;
 }
 
-static bool frame_key_seen(const struct eval_frame *f, const char *key) {
+static uint64_t frame_mix(uint64_t x) {
+    x ^= x >> 33;
+    x *= 0xff51afd7ed558ccdULL;
+    x ^= x >> 33;
+    x *= 0xc4ceb9fe1a85ec53ULL;
+    x ^= x >> 33;
+    return x;
+}
+
+static uint64_t frame_str_hash(const char *s) {
+    uint64_t h = 1469598103934665603ULL;
+    for (; *s != '\0'; s++) {
+        h ^= (unsigned char)*s;
+        h *= 1099511628211ULL;
+    }
+    return h;
+}
+
+/* rebuild a key index from the frame's valid entries */
+static void frame_khash_build(struct eval_frame *f) {
+    size_t cap = 16;
+    while (cap * 7 / 10 < f->n_keys + 1) cap *= 2;
+    void *nh = realloc(f->khash, cap * sizeof(*f->khash));
+    if (nh == NULL) return;
+    f->khash = nh;
+    f->khash_cap = cap;
+    for (size_t i = 0; i < cap; i++) f->khash[i].stamp = (size_t)-1;
     for (size_t i = 0; i < f->n_keys; i++) {
-        if (strcmp(f->keys[i], key) == 0) return true;
+        size_t slot = frame_mix(frame_str_hash(f->keys[i])) & (cap - 1);
+        while (f->khash[slot].stamp != (size_t)-1) {
+            slot = (slot + 1) & (cap - 1);
+        }
+        f->khash[slot].key = f->keys[i];
+        f->khash[slot].stamp = i;
+    }
+}
+
+static bool frame_key_seen(const struct eval_frame *f, const char *key) {
+    if (f->khash_cap == 0) return false;
+    size_t slot = frame_mix(frame_str_hash(key)) & (f->khash_cap - 1);
+    while (f->khash[slot].stamp != (size_t)-1) {
+        if (f->khash[slot].stamp < f->n_keys &&
+            strcmp(f->khash[slot].key, key) == 0) {
+            return true;
+        }
+        slot = (slot + 1) & (f->khash_cap - 1);
     }
     return false;
 }
 
-static bool frame_idx_seen(const struct eval_frame *f, size_t idx) {
+static void frame_khash_insert(struct eval_frame *f, const char *key) {
+    if (f->n_keys + 1 > f->khash_cap * 7 / 10) frame_khash_build(f);
+    size_t slot = frame_mix(frame_str_hash(key)) & (f->khash_cap - 1);
+    while (f->khash[slot].stamp != (size_t)-1) {
+        slot = (slot + 1) & (f->khash_cap - 1);
+    }
+    f->khash[slot].key = key;
+    f->khash[slot].stamp = f->n_keys - 1;
+}
+
+static void frame_ihash_build(struct eval_frame *f) {
+    size_t cap = 16;
+    while (cap * 7 / 10 < f->n_idx + 1) cap *= 2;
+    void *nh = realloc(f->ihash, cap * sizeof(*f->ihash));
+    if (nh == NULL) return;
+    f->ihash = nh;
+    f->ihash_cap = cap;
+    for (size_t i = 0; i < cap; i++) f->ihash[i].stamp = (size_t)-1;
     for (size_t i = 0; i < f->n_idx; i++) {
-        if (f->idx[i] == idx) return true;
+        size_t slot = frame_mix((uint64_t)f->idx[i]) & (cap - 1);
+        while (f->ihash[slot].stamp != (size_t)-1) {
+            slot = (slot + 1) & (cap - 1);
+        }
+        f->ihash[slot].val = f->idx[i];
+        f->ihash[slot].stamp = i;
+    }
+}
+
+static bool frame_idx_seen(const struct eval_frame *f, size_t idx) {
+    if (f->ihash_cap == 0) return false;
+    size_t slot = frame_mix((uint64_t)idx) & (f->ihash_cap - 1);
+    while (f->ihash[slot].stamp != (size_t)-1) {
+        if (f->ihash[slot].stamp < f->n_idx && f->ihash[slot].val == idx) {
+            return true;
+        }
+        slot = (slot + 1) & (f->ihash_cap - 1);
     }
     return false;
+}
+
+static void frame_ihash_insert(struct eval_frame *f, size_t idx) {
+    if (f->n_idx + 1 > f->ihash_cap * 7 / 10) frame_ihash_build(f);
+    size_t slot = frame_mix((uint64_t)idx) & (f->ihash_cap - 1);
+    while (f->ihash[slot].stamp != (size_t)-1) {
+        slot = (slot + 1) & (f->ihash_cap - 1);
+    }
+    f->ihash[slot].val = idx;
+    f->ihash[slot].stamp = f->n_idx - 1;
 }
 
 static void frame_add_key(vctx *vc, const char *key) {
@@ -284,6 +388,7 @@ static void frame_add_key(vctx *vc, const char *key) {
         f->keys = nk;
     }
     f->keys[f->n_keys++] = key;
+    frame_khash_insert(f, key);
 }
 
 static void frame_add_idx(vctx *vc, size_t idx) {
@@ -297,6 +402,7 @@ static void frame_add_idx(vctx *vc, size_t idx) {
         f->idx = ni;
     }
     f->idx[f->n_idx++] = idx;
+    frame_ihash_insert(f, idx);
 }
 
 /* drop the annotations a trial contributed to its merge target (the
@@ -313,6 +419,8 @@ static void frames_free(vctx *vc) {
     for (int i = 0; i < vc->n_frames; i++) {
         free(vc->frames[i].keys);
         free(vc->frames[i].idx);
+        free(vc->frames[i].khash);
+        free(vc->frames[i].ihash);
     }
     free(vc->frames);
 }
