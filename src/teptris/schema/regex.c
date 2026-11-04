@@ -229,8 +229,9 @@ static const teptris_uc_prop *uc_find(const uint32_t *s, size_t n) {
 
 /* the complement of sorted ranges over the whole codepoint space (the
  * caller reserved headroom) */
-static void cls_append_complement(pctx *c, ra *cl, const teptris_uc_range *rs,
-                                  int n) {
+static void cls_append_complement(pctx *c, ra *cl,
+                                  const teptris_uc_range *rs, int n) {
+    (void)c;
     uint32_t expect = 0;
     for (int i = 0; i <= n; i++) {
         uint32_t lo = i < n ? rs[i].lo : 0x110000;
@@ -387,6 +388,7 @@ static long class_escape(pctx *c, ra *cl) {
  * sorted; literals interleave arbitrarily) so matching can binary
  * search and negation sees a canonical form */
 static void cls_sort_merge(pctx *c, ra *cl) {
+    (void)c;
     int n = cl->n_ranges;
     for (int i = 1; i < n; i++) {
         ra_range r = cl->ranges[i];
