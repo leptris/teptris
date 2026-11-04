@@ -1351,6 +1351,40 @@ TEST(SchemaDynamic, InnermostAnchorWins)
     EXPECT_FALSE(valid(leaf.sch, "value = 'leaf'\n[[children]]\nvalue = 99\n"));
 }
 
+TEST(SchemaRegex, UnicodePropertyEscapes)
+{
+    SchemaDoc letter;
+    letter.sch = compile_ok(
+        "{\"properties\":{\"k\":{\"pattern\":\"^\\\\p{Letter}+$\"}}}");
+    ASSERT_NE(letter.sch, nullptr);
+    EXPECT_TRUE(valid(letter.sch, "k = 'Hello'\n"));
+    EXPECT_TRUE(valid(letter.sch, "k = '\xcf\x80'\n")); /* π */
+    EXPECT_FALSE(valid(letter.sch, "k = '123'\n"));
+
+    /* negated forms: \P and \p{^...} */
+    SchemaDoc neg;
+    neg.sch = compile_ok(
+        "{\"properties\":{\"k\":{\"pattern\":\"^\\\\P{Letter}+$\"}}}");
+    ASSERT_NE(neg.sch, nullptr);
+    EXPECT_TRUE(valid(neg.sch, "k = '123'\n"));
+    EXPECT_FALSE(valid(neg.sch, "k = 'abc'\n"));
+
+    /* properties compose inside classes */
+    SchemaDoc mix;
+    mix.sch = compile_ok(
+        "{\"properties\":{\"k\":{\"pattern\":"
+        "\"^[\\\\p{Letter}\\\\d]+$\"}}}");
+    ASSERT_NE(mix.sch, nullptr);
+    EXPECT_TRUE(valid(mix.sch, "k = 'a1\xcf\x80'\n"));
+    EXPECT_FALSE(valid(mix.sch, "k = 'a-\xcf\x80'\n"));
+
+    /* an unknown property names itself at compile (the contract:
+     * unsupported constructs are rejected, never ignored) */
+    std::string diag = compile_diag(
+        "{\"properties\":{\"k\":{\"pattern\":\"^\\\\p{Greek}$\"}}}");
+    EXPECT_NE(diag.find("unknown"), std::string::npos);
+}
+
 TEST(SchemaCompile, BuiltinMetaschemas)
 {
     /* the vendored metaschemas resolve as built-in resources: a

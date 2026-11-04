@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "regex.h"
+#include "unicode_props.h"
 
 /* ---------------------------------------------------------------- AST -- */
 
@@ -199,6 +200,93 @@ static void cls_add_cp(pctx *c, ra *cl, uint32_t cp) {
     cl->n_ranges++;
 }
 
+/* ------------------------------------------------- \p{...} properties -- */
+
+static void cls_reserve(pctx *c, ra *cl, size_t cap);
+
+/* the property named by s[0..n) (decoded code points): binary search
+ * over the sorted table */
+static const teptris_uc_prop *uc_find(const uint32_t *s, size_t n) {
+    int lo = 0, hi = teptris_n_unicode_props - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        const char *name = teptris_unicode_props[mid].name;
+        int cmp = 0;
+        for (size_t i = 0; i < n; i++) {
+            unsigned char c = (unsigned char)name[i];
+            if (c == '\0' || (uint32_t)c != s[i]) {
+                cmp = (uint32_t)c < s[i] ? -1 : 1;
+                break;
+            }
+        }
+        if (cmp == 0 && name[n] == '\0') return &teptris_unicode_props[mid];
+        if (cmp == 0) cmp = 1; /* longer table name: s sorts first */
+        if (cmp < 0) lo = mid + 1;
+        else hi = mid - 1;
+    }
+    return NULL;
+}
+
+/* the complement of sorted ranges over the whole codepoint space (the
+ * caller reserved headroom) */
+static void cls_append_complement(pctx *c, ra *cl, const teptris_uc_range *rs,
+                                  int n) {
+    uint32_t expect = 0;
+    for (int i = 0; i <= n; i++) {
+        uint32_t lo = i < n ? rs[i].lo : 0x110000;
+        uint32_t hi = i < n ? rs[i].hi : 0x110000;
+        if (lo > expect) {
+            cl->ranges[cl->n_ranges].lo = expect;
+            cl->ranges[cl->n_ranges].hi = lo - 1;
+            cl->n_ranges++;
+        }
+        if (hi + 1 > expect) expect = hi + 1;
+    }
+}
+
+/* parse \p{...} / \P{...} / \p{^...} with c->pos after the letter;
+ * the ranges (or their complement) append into cl */
+static void prop_escape(pctx *c, ra *cl, bool negate_letter) {
+    bool inner_neg = false;
+    if (c->pos >= c->n || c->s[c->pos] != '{') {
+        pfail(c, "\\p needs a {property} name");
+        return;
+    }
+    c->pos++;
+    if (c->pos < c->n && c->s[c->pos] == '^') {
+        inner_neg = true;
+        c->pos++;
+    }
+    size_t start = c->pos;
+    while (c->pos < c->n && c->s[c->pos] != '}') c->pos++;
+    if (c->pos >= c->n) {
+        pfail(c, "unterminated \\p{...}");
+        return;
+    }
+    size_t n = c->pos - start;
+    c->pos++; /* the closing brace */
+    if (n == 0) {
+        pfail(c, "empty \\p{} property name");
+        return;
+    }
+    const teptris_uc_prop *p = uc_find(c->s + start, n);
+    if (p == NULL) {
+        pfail(c, "unknown \\p{...} property name");
+        return;
+    }
+    bool negate = negate_letter != inner_neg;
+    cls_reserve(c, cl, negate ? 2 * p->n + 8 : (size_t)p->n + 8);
+    if (negate) {
+        cls_append_complement(c, cl, p->ranges, p->n);
+    } else {
+        for (int i = 0; i < p->n; i++) {
+            cl->ranges[cl->n_ranges].lo = p->ranges[i].lo;
+            cl->ranges[cl->n_ranges].hi = p->ranges[i].hi;
+            cl->n_ranges++;
+        }
+    }
+}
+
 /* expand a class shorthand (\d \w \s) into its ranges */
 static void cls_shorthand(pctx *c, ra *cl, uint32_t e) {
     if (e == 'd' || e == 'D') {
@@ -240,6 +328,10 @@ static long class_escape(pctx *c, ra *cl) {
     case 'd': case 'D': case 'w': case 'W': case 's': case 'S':
         c->pos++;
         cls_shorthand(c, cl, e);
+        return -1;
+    case 'p': case 'P':
+        c->pos++;
+        prop_escape(c, cl, e == 'P');
         return -1;
     case 'x': {
         c->pos++;
@@ -291,6 +383,33 @@ static long class_escape(pctx *c, ra *cl) {
 }
 
 /* parse the body of a [...]; c->pos sits after '[' */
+/* sort + merge a class's ranges in place (property tables arrive
+ * sorted; literals interleave arbitrarily) so matching can binary
+ * search and negation sees a canonical form */
+static void cls_sort_merge(pctx *c, ra *cl) {
+    int n = cl->n_ranges;
+    for (int i = 1; i < n; i++) {
+        ra_range r = cl->ranges[i];
+        int j = i - 1;
+        while (j >= 0 && (cl->ranges[j].lo > r.lo)) {
+            cl->ranges[j + 1] = cl->ranges[j];
+            j--;
+        }
+        cl->ranges[j + 1] = r;
+    }
+    int w = 0;
+    for (int i = 1; i < n; i++) {
+        if (cl->ranges[i].lo <= cl->ranges[w].hi + 1) {
+            if (cl->ranges[i].hi > cl->ranges[w].hi) {
+                cl->ranges[w].hi = cl->ranges[i].hi;
+            }
+        } else {
+            cl->ranges[++w] = cl->ranges[i];
+        }
+    }
+    cl->n_ranges = w + 1;
+}
+
 static ra *rclass(pctx *c) {
     ra *cl = rn(c, RA_CLASS);
     if (c->pos < c->n && c->s[c->pos] == '^') {
@@ -303,6 +422,7 @@ static ra *rclass(pctx *c) {
     while (c->pos < c->n) {
         if (c->s[c->pos] == ']' && !first) {
             c->pos++;
+            cls_sort_merge(c, cl);
             return cl;
         }
         first = false;
@@ -493,6 +613,13 @@ static ra *ratom(pctx *c) {
             cl->negated = (e == 'D' || e == 'W' || e == 'S');
             cls_reserve(c, cl, 8);
             cls_shorthand(c, cl, e);
+            return cl;
+        }
+        if (e == 'p' || e == 'P') {
+            c->pos++;
+            ra *cl = rn(c, RA_CLASS);
+            prop_escape(c, cl, e == 'P');
+            if (c->err[0] != '\0') return NULL;
             return cl;
         }
         if (e == 'b') {
@@ -701,12 +828,13 @@ static bool emit_node(nctx *c, ra *r, frag *f) {
         int s = nstate(c, RS_CHAR);
         if (s < 0) return false;
         if (r->ci) {
-            /* a folded letter matches both cases */
+            /* a folded letter matches both cases (stored ascending:
+             * cls_match binary-searches) */
             c->states[s].ranges = teptris_arena_alloc(c->a, 2 * sizeof(ra_range));
-            c->states[s].ranges[0].lo = r->cp;
-            c->states[s].ranges[0].hi = r->cp;
-            c->states[s].ranges[1].lo = fold_cp(r->cp) - 32;
-            c->states[s].ranges[1].hi = fold_cp(r->cp) - 32;
+            c->states[s].ranges[0].lo = fold_cp(r->cp) - 32;
+            c->states[s].ranges[0].hi = fold_cp(r->cp) - 32;
+            c->states[s].ranges[1].lo = r->cp;
+            c->states[s].ranges[1].hi = r->cp;
             c->states[s].n_ranges = 2;
         } else {
             c->states[s].ranges = teptris_arena_alloc(c->a, sizeof(ra_range));
@@ -937,9 +1065,15 @@ struct sch_regex *sch_regex_compile(teptris_arena *a, const char *pattern,
 
 static bool cls_match(const rstate *st, uint32_t cp) {
     if (st->any) return true;
+    int lo = 0, hi = st->n_ranges - 1;
     bool in = false;
-    for (int i = 0; i < st->n_ranges; i++) {
-        if (cp >= st->ranges[i].lo && cp <= st->ranges[i].hi) {
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        if (cp < st->ranges[mid].lo) {
+            hi = mid - 1;
+        } else if (cp > st->ranges[mid].hi) {
+            lo = mid + 1;
+        } else {
             in = true;
             break;
         }
