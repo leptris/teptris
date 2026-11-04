@@ -37,7 +37,9 @@ def toml_inline(v):
     return toml_scalar(v)
 
 def toml_key(k):
-    if all(c.isalnum() or c in '-_' for c in k) and k and not k[0].isdigit():
+    # TOML bare keys are ASCII-only (python's isalnum is not)
+    if all(("a" <= c <= "z") or ("A" <= c <= "Z") or ("0" <= c <= "9")
+           or c in "-_" for c in k) and k and not k[0].isdigit():
         return k
     return json.dumps(k)
 

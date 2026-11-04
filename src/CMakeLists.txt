@@ -23,6 +23,7 @@ set(TEPTRIS_SOURCES
     teptris/schema/refs.c
     teptris/schema/metaschemas.c
     teptris/schema/regex.c
+    teptris/schema/unicode_props.c
     teptris/schema/schema.c
     teptris/schema/formats.c
     teptris/schema/validate.c
