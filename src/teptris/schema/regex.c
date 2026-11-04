@@ -275,7 +275,7 @@ static void prop_escape(pctx *c, ra *cl, bool negate_letter) {
         return;
     }
     bool negate = negate_letter != inner_neg;
-    cls_reserve(c, cl, negate ? 2 * p->n + 8 : (size_t)p->n + 8);
+    cls_reserve(c, cl, negate ? (size_t)2 * p->n + 8 : (size_t)p->n + 8);
     if (negate) {
         cls_append_complement(c, cl, p->ranges, p->n);
     } else {
