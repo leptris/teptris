@@ -107,7 +107,7 @@ spec-exact reference). The decisive evidence is the **official JSON
 Schema test suite** (draft 2020-12) run through teptris:
 
     python3 scripts/sota_suite_check.py
-    # passed 964/1011, skipped 287 (pinned suite commit ed0ebd31)
+    # passed 984/1011, skipped 287 (pinned suite commit ed0ebd31)
 
 And — the decisive gate this round — tombi's own suite definition
 ("Definition A": the official suite at tombi's pin, required files
@@ -213,7 +213,8 @@ dynamic refs, contentSchema, the local datetime formats), and two
 vendored real-world manifests (`test/fixtures/schema/`) validated
 against conforming and violating documents.
 `scripts/sota_suite_check.py` — the official JSON Schema test suite
-(draft 2020-12, pinned) through teptris: 964/1011 with every miss a
-documented policy stance and every skip classified.
+(draft 2020-12, pinned) through teptris: 984/1011 with every miss a
+documented policy stance (the 27 remaining: format/content assertion
+vs the suite's annotation-mode expectation) and every skip classified.
 `test/fuzz/fuzz_schema.c` — the E3 harness: schema/doc slicing, the
 buffer contracts, compile/free loops under ASan/UBSan.
