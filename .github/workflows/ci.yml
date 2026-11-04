@@ -65,6 +65,30 @@ jobs:
           cmake --build build-asan -j
           ctest --test-dir build-asan --output-on-failure
 
+  definition-a:
+    # The official JSON Schema suite through tombi's exact harness
+    # definition (required files, drafts 7 / 2019-09 / 2020-12, the
+    # suite at tombi's pin). The gate: 1173/1173, schema-rejected 0.
+    name: definition-A (json-schema suite)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Fetch the suite (tombi's pin)
+        run: |
+          git clone --depth 1 https://github.com/json-schema-org/JSON-Schema-Test-Suite /tmp/suiteA
+          git -C /tmp/suiteA fetch --depth 1 origin 1d82f70b87bba8c6f5d47b6b7e256401215d635b
+          git -C /tmp/suiteA checkout --detach 1d82f70b87bba8c6f5d47b6b7e256401215d635b
+      - name: Build the CLI
+        run: |
+          cmake -B build -S . -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTING=OFF -DTEPTRIS_BUILD_CLI=ON
+          cmake --build build -j
+      - name: Definition A must be 1173/1173 with zero schema rejections
+        run: |
+          python3 scripts/suiteA_check.py | tee /tmp/defa.log
+          grep -q "passed 1173/1173" /tmp/defa.log
+          ! grep -q "schema-rejected [1-9]" /tmp/defa.log
+
   tsan:
     # The board's TSAN line: the preset is in-tree and green locally;
     # this lane keeps it honest on CI. Single-threaded suite (the
