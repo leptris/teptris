@@ -882,10 +882,17 @@ same shape. Every cell is end-to-end CLI wall time including startup.
 
 | cell (8.1 MiB corpus) | teptris | tombi | speedup |
 |---|---|---|---|
-| parse (`parse` vs `lint`, no schema) | 0.047 s | 0.814 s | **17.5x** |
-| format (`to-json` vs `format`) | 0.046 s | 1.469 s | **31.9x** |
-| validate (`validate --schema` vs `lint` + `#:schema`) | 0.721 s | 4.902 s | **6.8x** |
+| parse (`parse` vs `lint`, no schema) | 0.047 s | 0.817 s | **17.7x** |
+| format (`to-json` vs `format`) | 0.046 s | 1.471 s | **30.8x** |
+| validate (`validate --schema` vs `lint` + `#:schema`) | 0.130 s | 4.978 s | **38.2x** |
 | schema compile (1 MiB schema + tiny doc) | 0.025 s | 0.085 s | **3.4x** |
+
+The validate cell's second leap (6.8x -> 38.2x, 2026-11-04) is the
+annotation-frame hash: the first measurement was itself the discovery
+instrument — `bench_schema` (teptris-only tier, shipped this round)
+exposed the O(n^2) on the flat-scalar corpora (0.2 MB/s), the frames
+went stamp-hashed, and every corpus now validates at 80-1150 MB/s
+(`bench_schema bench-corpus 9`).
 
 Small/mid regimes (spawn-dominated): 20 KiB validate 2 ms vs 18 ms
 (9x), parse 2 ms vs 9 ms (4.5x); 500 KiB validate 9 ms vs 234 ms
