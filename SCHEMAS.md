@@ -74,8 +74,8 @@ The CLI rides the same engine path:
 | `uniqueItems`, `minItems`, `maxItems` | full |
 | `minLength`, `maxLength` | full, counted in code points; count keywords accept integral float tokens (`"maxLength": 3.0` is legal JSON Schema and enforced) |
 | `pattern` | practical ECMA subset via a Thompson NFA (linear time, ReDoS-immune by construction): classes, quantifiers, groups, alternation, anchors, `\b/\B`, `\xNN/\uNNNN`, Unicode property escapes `\p{...}` / `\P{...}` / `\p{^...}` (general categories long+short, plus Any / ASCII / White_Space / Alphabetic / Uppercase / Lowercase — generated tables; an unknown property names itself at compile), a leading `(?i)` ASCII-fold. Lazy quantifiers are accepted (no boolean-match difference). Backreferences, lookahead and lookbehind are rejected at compile |
-| `format` | enforced set (below); other names are annotations (accepted, not enforced). String values are shape+range checked; TOML datetime values satisfy formats by the policy-3 kind table |
-| `contentEncoding`, `contentMediaType` | enforced pair, the draft 07 lens: `base64` is charset-checked (and decoded) before the `application/json` media check; unknown names on either side are no-ops |
+| `format` | enforced set (below) in the no-dialect practical default; annotation-only under a declared standard draft dialect (spec default), with the `.../2020-12/format-assertion` dialect opting back in. Other names are annotations everywhere. String values are shape+range checked; TOML datetime values satisfy formats by the policy-3 kind table |
+| `contentEncoding`, `contentMediaType` | enforced pair in the no-dialect practical default (the draft 07 lens: `base64` is charset-checked (and decoded) before the `application/json` media check; unknown names are no-ops); annotation-only under a declared standard draft dialect (the 2020-12 content vocabulary: assertions SHOULD NOT be made) |
 | `minimum`, `maximum`, `exclusiveMinimum`, `exclusiveMaximum`, `multipleOf` | full; exact integer paths when the constraint is an exact integer token (no float drift on integers); `multipleOf` must be > 0 |
 | `enum`, `const` | full, type-strict deep equality (policy 2/3) |
 | `allOf`, `anyOf`, `oneOf`, `not`, `if`/`then`/`else` | full; failing trials are muted (they contribute no errors, only the verdict) |
@@ -84,10 +84,10 @@ The CLI rides the same engine path:
 | unknown keywords | accepted (2020-12 extension rule) |
 | `unevaluatedProperties`, `unevaluatedItems` | full, per the 2020-12 annotation model: annotations from adjacent keywords and from in-place applicators ($ref, allOf, anyOf/oneOf successful branches, if-then-else) evaluate the instance; cousins never share; failed trials annotate nothing |
 | `$dynamicRef`, `$dynamicAnchor`, `$recursiveRef`, `$recursiveAnchor` | full, spec-exact (2020-12 §8.2.3.2 + appendix C): each applied schema object enters its subtree's anchors into the dynamic scope; `$dynamicRef` resolves to the outermost resource on the evaluation path that defines the fragment (nearest-`$id` ownership, document order within a resource), the initial resolution standing as fallback; `$recursiveRef` participates only when the ref's own resource carries a true `$recursiveAnchor`, resolving to the first anchor-carrying resource root on the path. URI- and pointer-form dynamic refs read exactly like a plain `$ref` |
-| `contentSchema` | full: asserts the decoded content (the parsed value for `application/json`, the decoded text otherwise) |
+| `contentSchema` | full in the no-dialect practical default: asserts the decoded content (the parsed value for `application/json`, the decoded text otherwise); annotation-only under a declared standard draft dialect |
 | `$vocabulary` | enforced through the `$schema` metaschema: a custom metaschema's `$vocabulary` decides which standard vocabularies the dialect keeps (core is mandatory; unlisted or false vocabularies turn their keywords into annotations). Unresolvable `$schema` keeps all vocabularies |
 
-The enforced format set (23 names — the taplo parity set plus
+The recognized format set (23 names — the taplo parity set plus
 tombi's TOML-native pair): `date-time`, `date`, `time`,
 `date-time-local` (alias `partial-date-time`), `time-local` (alias
 `partial-time`), `email`, `idn-email`, `hostname`, `idn-hostname`,
@@ -107,7 +107,7 @@ spec-exact reference). The decisive evidence is the **official JSON
 Schema test suite** (draft 2020-12) run through teptris:
 
     python3 scripts/sota_suite_check.py
-    # passed 984/1011, skipped 287 (pinned suite commit ed0ebd31)
+    # passed 1011/1011, skipped 287 (pinned suite commit ed0ebd31)
 
 And — the decisive gate this round — tombi's own suite definition
 ("Definition A": the official suite at tombi's pin, required files
@@ -118,13 +118,23 @@ only, drafts 7 / 2019-09 / 2020-12, the exact harness tombi runs at
     # passed 1173/1173, skipped 2318 (non-representable only),
     # schema-rejected 0 — full parity with tombi's json-schema-test
 
-Every representable case passes; there are no remaining misses and no
-schema rejections. The metaschema cases (definitions/remote-ref/vocab)
+Every representable case passes: **full marks, zero schema
+rejections**. The metaschema cases (definitions/remote-ref/vocab)
 pass through the vendored built-in metaschemas (draft-07, 2019-09,
 2020-12 and their meta files), so even `"$ref":
 "https://json-schema.org/draft/2020-12/schema"` resolves without a
 network. The skips are TOML-unrepresentable instances (null,
 non-table roots) — the harness classifies every skip.
+
+The last 27 rows (every format/content case) closed with the
+**dialect-gated assertion model**: the harness injects the draft
+dialect per the official suite contract, and a declared standard
+dialect takes `format` and `content*` to the spec's annotation-only
+default — while the no-dialect practical default still asserts, and
+the spec's `.../2020-12/format-assertion` dialect opts back in. The
+same schema therefore reads exactly as the spec says under an
+explicit dialect, and exactly as real-world tooling expects without
+one.
 
 Where teptris stands against tombi and the modern crate:
 
@@ -140,8 +150,9 @@ Where teptris stands against tombi and the modern crate:
   fallback, multiple dynamic paths, skip-over-intermediate-resources,
   and the metaschema's own `#meta` recursion). Pointer- and URI-form
   dynamic refs read like a plain `$ref`, as the suite defines them.
-- **contentSchema** — asserted (tombi parses it as a schema keyword;
-  teptris enforces the decoded content against it).
+- **contentSchema** — asserted in the no-dialect practical default
+  (tombi parses it as a schema keyword; teptris enforces the decoded
+  content against it), annotation under a declared dialect.
 - **`date-time-local` / `time-local`** — tombi's TOML-native named
   formats, adopted here (aliases `partial-date-time`/`partial-time`);
   with the policy-3 kind table teptris's datetime/format mapping now
@@ -150,10 +161,12 @@ Where teptris stands against tombi and the modern crate:
   implicit-`additionalProperties` semantics — tombi's lint defaults
   to strict mode (implicit `additionalProperties: false` at tables),
   which is a linter policy, not schema semantics; teptris stays
-  spec-exact. teptris asserts `content`/`format` names tombi leaves
-  as annotations. teptris never touches the network (tombi fetches
-  schemas over HTTP); a schema carrying `$id` resources or remote
-  `$ref`s is named at compile instead.
+  spec-exact. `format`/`content*` follow the spec per dialect:
+  annotation under a declared draft, assertion in teptris's
+  no-dialect practical default (tombi annotates). teptris never
+  touches the network (tombi fetches schemas over HTTP); a schema
+  carrying `$id` resources or remote `$ref`s is named at compile
+  instead.
 - **taplo remains a strict subset**: everything the 0.3.21 taplo
   audit established still holds (the draft-07 lens cannot reach
   `dependentRequired`/`dependentSchemas`/`prefixItems`/
@@ -213,8 +226,7 @@ dynamic refs, contentSchema, the local datetime formats), and two
 vendored real-world manifests (`test/fixtures/schema/`) validated
 against conforming and violating documents.
 `scripts/sota_suite_check.py` — the official JSON Schema test suite
-(draft 2020-12, pinned) through teptris: 984/1011 with every miss a
-documented policy stance (the 27 remaining: format/content assertion
-vs the suite's annotation-mode expectation) and every skip classified.
+(draft 2020-12, pinned) through teptris: **1011/1011** — full marks,
+every skip classified.
 `test/fuzz/fuzz_schema.c` — the E3 harness: schema/doc slicing, the
 buffer contracts, compile/free loops under ASan/UBSan.
