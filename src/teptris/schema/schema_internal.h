@@ -226,6 +226,10 @@ typedef struct {
     /* which standard vocabularies the dialect keeps (8.1.2: a custom
      * metaschema's $vocabulary decides; absent = all of them) */
     unsigned vocab_mask;
+    /* an explicit root $schema declares the dialect: format and
+     * content* then follow the spec's annotation-only default. No
+     * $schema means teptris's practical default: assert. */
+    bool dialect_declared;
     /* standard vocabulary gates (the core vocabulary is mandatory and
  * never gated) */
 #define TEPTRIS_VOC_APPLICATOR 1u

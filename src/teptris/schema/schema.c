@@ -1151,8 +1151,12 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
             }
             n->dynamic_recursive = recursive;
         } else if (strcmp(k, "contentSchema") == 0) {
-            n->content_schema = sch_compile_node(c, val);
-            if (n->content_schema == NULL && c->err[0] != '\0') return NULL;
+            if (!c->dialect_declared) {
+                n->content_schema = sch_compile_node(c, val);
+                if (n->content_schema == NULL && c->err[0] != '\0') return NULL;
+            }
+            /* annotation under an explicit dialect (2020-12 content
+             * vocabulary: assertions SHOULD NOT be made) */
         } else if (strcmp(k, "required") == 0 &&
                    jv_kind_of(val) == JV_ARRAY) {
             size_t cnt = jv_item_count(val);
@@ -1224,10 +1228,10 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
             }
         } else if (strcmp(k, "contentEncoding") == 0 &&
                    jv_kind_of(val) == JV_STRING) {
-            n->content_encoding = jv_str(val);
+            if (!c->dialect_declared) n->content_encoding = jv_str(val);
         } else if (strcmp(k, "contentMediaType") == 0 &&
                    jv_kind_of(val) == JV_STRING) {
-            n->content_media_type = jv_str(val);
+            if (!c->dialect_declared) n->content_media_type = jv_str(val);
         } else if (strcmp(k, "items") == 0 && jv_kind_of(val) == JV_ARRAY) {
             /* draft-07 tuple form: positional prefixes; the union
              * reads them exactly like prefixItems, with
@@ -1300,7 +1304,11 @@ sch_node *sch_compile_node(sctx *c, const jv *v) {
             if (!count_value(c, val, &n->max_length)) return NULL;
             n->has_max_length = true;
         } else if (strcmp(k, "format") == 0 && jv_kind_of(val) == JV_STRING) {
-            n->format = format_kind(jv_str(val));
+            if (!c->dialect_declared) {
+                n->format = format_kind(jv_str(val));
+            }
+            /* an explicit dialect keeps the spec's annotation-only
+             * default: the keyword rides the ignored tail */
         } else if ((strcmp(k, "minimum") == 0 || strcmp(k, "maximum") == 0 ||
                     strcmp(k, "exclusiveMinimum") == 0 ||
                     strcmp(k, "exclusiveMaximum") == 0) &&
@@ -1511,7 +1519,11 @@ static teptris_status schema_compile_core(const char *json, size_t len,
         c.cur_dir = held;
     }
     /* draft 07 and older make a $ref ignore its siblings; 2019-09+
-     * evaluate $ref alongside them. The root's $schema decides. */
+     * evaluate $ref alongside them. The root's $schema decides. A
+     * standard draft dialect switches format/content* to the spec's
+     * annotation-only default; the format-assertion dialect URI opts
+     * back in, and the no-dialect default asserts (the practical
+     * mode every real-world manifest relies on). */
     if (jv_kind_of(root) == JV_OBJECT) {
         jv *sv = jv_member_get(root, "$schema");
         if (sv != NULL && jv_kind_of(sv) == JV_STRING) {
@@ -1519,6 +1531,9 @@ static teptris_status schema_compile_core(const char *json, size_t len,
             if (strstr(s, "draft-04") != NULL || strstr(s, "draft-06") != NULL ||
                 strstr(s, "draft-07") != NULL) {
                 c.ref_exclusive = true;
+            }
+            if (strstr(s, "format-assertion") == NULL) {
+                c.dialect_declared = true;
             }
         }
     }

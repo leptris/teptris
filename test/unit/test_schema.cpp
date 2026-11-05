@@ -1385,6 +1385,50 @@ TEST(SchemaRegex, UnicodePropertyEscapes)
     EXPECT_NE(diag.find("unknown"), std::string::npos);
 }
 
+TEST(SchemaFormat, DialectGating)
+{
+    /* the practical default (no $schema): assert */
+    SchemaDoc plain;
+    plain.sch = compile_ok(
+        "{\"properties\":{\"k\":{\"format\":\"email\"}}}");
+    ASSERT_NE(plain.sch, nullptr);
+    EXPECT_FALSE(valid(plain.sch, "k = '2962'\n"));
+    EXPECT_TRUE(valid(plain.sch, "k = 'a@b.co'\n"));
+
+    /* a declared standard dialect: the spec's annotation default */
+    SchemaDoc anno;
+    anno.sch = compile_ok(
+        "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\","
+        "\"properties\":{\"k\":{\"format\":\"email\"}}}");
+    ASSERT_NE(anno.sch, nullptr);
+    EXPECT_TRUE(valid(anno.sch, "k = '2962'\n"));
+
+    /* the sanctioned opt-back-in: the format-assertion dialect */
+    SchemaDoc assert_;
+    assert_.sch = compile_ok(
+        "{\"$schema\":\"https://json-schema.org/draft/2020-12/"
+        "format-assertion\",\"properties\":{\"k\":{\"format\":"
+        "\"email\"}}}");
+    ASSERT_NE(assert_.sch, nullptr);
+    EXPECT_FALSE(valid(assert_.sch, "k = '2962'\n"));
+    EXPECT_TRUE(valid(assert_.sch, "k = 'a@b.co'\n"));
+
+    /* content* follows the same rule */
+    SchemaDoc content;
+    content.sch = compile_ok(
+        "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\","
+        "\"properties\":{\"k\":{\"contentMediaType\":"
+        "\"application/json\"}}}");
+    ASSERT_NE(content.sch, nullptr);
+    EXPECT_TRUE(valid(content.sch, "k = '{:}'\n"));
+    SchemaDoc content_plain;
+    content_plain.sch = compile_ok(
+        "{\"properties\":{\"k\":{\"contentMediaType\":"
+        "\"application/json\"}}}");
+    ASSERT_NE(content_plain.sch, nullptr);
+    EXPECT_FALSE(valid(content_plain.sch, "k = '{:}'\n"));
+}
+
 TEST(SchemaCompile, BuiltinMetaschemas)
 {
     /* the vendored metaschemas resolve as built-in resources: a

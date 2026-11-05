@@ -84,8 +84,10 @@ def run_case(schema, data):
             # the TOML wrap moves the schema under a root property, so
             # document-relative refs no longer resolve: unrepresentable
             return -1
-        # keyword-only schemas wrap cleanly
-        schema = {"properties": {"root": schema}}
+        # keyword-only schemas wrap cleanly; the default dialect
+        # rides the wrap root ($schema is a resource-root keyword)
+        schema = {"$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "properties": {"root": schema}}
     if '"$id"' in blob:
         return -1  # $id resources: the single-document subset rejects them at compile
     if contains_null(data):
@@ -104,6 +106,12 @@ for f in FILES:
         continue
     for case in json.load(open(p)):
         schema = case["schema"]
+        # the official harness contract: the draft's meta-schema URI is
+        # the default dialect for every file in tests/<draft>/
+        if (isinstance(schema, dict) and "$schema" not in schema):
+            schema = dict(schema)
+            schema["$schema"] = ("https://json-schema.org/draft/"
+                                 "2020-12/schema")
         blob = json.dumps(schema)
         if "remote" in case["description"].lower() or "validate-defs" in blob and False:
             skipped += len(case["tests"])
