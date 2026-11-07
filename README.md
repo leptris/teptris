@@ -46,8 +46,8 @@ teptris implements the **TOML 1.1 draft as a strict superset of
   grammar keeps them **invalid** — `invalid/key/special-character.toml`
   — and the parser correctly rejects them. The claim is withdrawn,
   owner-noted 2026-10-30.)
-- Conformance is measured, not claimed: **712/712** on the toml-test
-  1.1 view (pin `ff49d109`), and the 1.0 view is 700/9 — the nine
+- Conformance is measured, not claimed: **720/720** on the toml-test
+  1.1 view (pin `96fd088`), and the 1.0 view is 708/9 — the nine
   accepts are exactly the 1.1-legalized constructs above, listed in
   `scripts/toml-test-run.sh`.
 - Value-level correctness beyond toml-test is differential-tested
@@ -87,7 +87,7 @@ inside and silence on stdout/stderr.
 | parse matrix vs C/C++ references | teptris 367–541 MB/s, fastest on every shape vs tomlc99, tomlc17, cpptoml, toml11, tomlplusplus (4.2–6.8× the best competitor, run 5, 2026-10-19) — `benchmarks/LEDGER.md` |
 | emit matrix | 264–768 MB/s, 3.1–57× tomlplusplus / 3.4–430× toml11 (run 5) — `benchmarks/LEDGER.md` |
 | bindings | teptris-ruby, teptris-py, teptris-rs, teptris-ts — the tier verdicts live in `BEST-EVER.md` |
-| toml-test (BurntSushi) | **100%** — 712/712 on the 1.1 view (pin ff49d109); the 1.0 view is 700/9 — the 9 accepts are TOML 1.1-legalized constructs, documented in `scripts/toml-test-run.sh` |
+| toml-test (BurntSushi) | **100%** — 720/720 on the 1.1 view (pin 96fd088); the 1.0 view is 708/9 — the 9 accepts are TOML 1.1-legalized constructs, documented in `scripts/toml-test-run.sh` |
 | differential vs the reference implementation | **zero divergence** — `scripts/differential.py` (CLI natural-JSON vs a tomllib value-tree oracle): 266/266 toml-test valid cases + the 9-shape corpus; wired into the ci and fuzz lanes |
 | reproducible benchmarks | one container command reproduces the engine-tier numbers on any host — `scripts/bench-container/`, and a report-only CI job runs it on every main push |
 
