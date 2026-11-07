@@ -186,9 +186,13 @@ static const char *jstring(jctx *c, size_t *out_len) {
         return s;
     }
     /* escaped string: rebuild into arena memory, carrying the plain
-     * prefix the fast scan already stepped over */
+     * prefix the fast scan already stepped over. Every remaining
+     * input byte yields at most one output byte (plain chars are
+     * 1:1, escapes consume >=2 input per <=4 output), so the whole
+     * remaining span is the tight bound — sizing from the prefix
+     * alone overflows on a long plain tail (ASan, nightly 2026-11-06). */
     size_t plain_len = c->pos - start;
-    size_t cap = (c->pos - start) * 4 + 16;
+    size_t cap = (c->len - start) + 16;
     char *out = teptris_arena_alloc(c->a, cap);
     size_t n = plain_len;
     memcpy(out, c->src + start, plain_len);

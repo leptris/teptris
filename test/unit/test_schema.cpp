@@ -241,6 +241,20 @@ TEST(SchemaCompile, UnknownKeywordsAreExtensions)
     EXPECT_TRUE(valid(s.sch, "k = 3\n"));
 }
 
+TEST(SchemaCompile, EscapedStringLongPlainTailCompiles)
+{
+    /* the escaped-string rebuild used to size its arena buffer from
+     * the plain PREFIX alone; a long plain tail after the first
+     * escape wrote past the arena block (ASan, nightly fuzz
+     * 2026-11-06, jput_utf8 heap-buffer-overflow) */
+    std::string json = "{\"description\":\"A\\u00e9";
+    json.append(128 * 1024, 'B');
+    json += "\"}";
+    SchemaDoc doc;
+    doc.sch = compile_ok(json);
+    ASSERT_NE(doc.sch, nullptr);
+}
+
 TEST(SchemaCompile, DiagIsSingleMallocdJson)
 {
     teptris_schema *sch = nullptr;

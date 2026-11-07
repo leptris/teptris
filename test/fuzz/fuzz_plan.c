@@ -32,7 +32,10 @@ static void drain_row(const teptris_plan_result *r, uint32_t row,
     (void)teptris_plan_result_value_kind_at(r, row);
     teptris_plan_result *view = teptris_plan_result_row_view(r, row);
     if (view != NULL) {
-        teptris_plan_result_free(view);
+        /* row_view is BORROWED (plan.h: "do not free") — view_free
+         * drops the wrapper only; result_free destroys the parent's
+         * tree and the reads below become use-after-free */
+        teptris_plan_result_view_free(view);
     }
     (void)teptris_plan_result_raw_at(r, row);
     teptris_view v;
