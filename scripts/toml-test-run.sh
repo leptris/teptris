@@ -13,11 +13,13 @@ cd "$(dirname "$0")/.."
 CORPUS=${1:-corpus/toml-test}
 VERSION=${TOML_VERSION:-1.1}
 VIEW=/tmp/teptris-toml-test-$VERSION
-# Main tip 2026-10-02. Upstream tags lag: v2.2.0 sat 18 commits behind and
-# still carried the UTF-8 BOM tests upstream backed out in 0d1c92e — the
-# 1.1 view moved 714 -> 712 with that backout, 0 fail either way. Pin a
-# commit, not a tag, until upstream cuts a release past the backout.
-PIN=ff49d109861c1ad25af53f687f2aef19ab650600
+# Main tip 2026-11-07 (96fd088: 9 new invalid date/float cases, all
+# rejected; 1.1 view 712 -> 720, 1.0 view 700/9 -> 708/9). Upstream tags
+# lag: v2.2.0 sat 18 commits behind and still carried the UTF-8 BOM
+# tests upstream backed out in 0d1c92e — the 1.1 view moved 714 -> 712
+# with that backout, 0 fail either way. Pin a commit, not a tag, until
+# upstream cuts a release past the backout.
+PIN=96fd088448ec0f4d9f061c730ed7854399c46faf
 if [ ! -d "$CORPUS/tests/valid" ]; then
     mkdir -p "$(dirname "$CORPUS")"
     git clone -q https://github.com/toml-lang/toml-test.git "$CORPUS" 2>/dev/null
