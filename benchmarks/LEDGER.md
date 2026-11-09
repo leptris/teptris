@@ -949,3 +949,21 @@ everywhere JSON floats parse (schema compile benefits too).
 (2) `TextEncoder.encodeInto` LOSES to the inline per-char ASCII loop
 for string values (the subarray view allocation dominates; 11.51 ->
 12.17 ms on scalar_string) — the loop stays.
+
+## py dumps: the flat-shape floor, profiled (2026-11-09, darwin/arm64, py 3.10)
+
+The last GAP cell (py dict-API dumps vs rtoml, flat shapes 1.3-1.5x
+behind) sampled: **walk 57%** (PyDict_Next + PyLong_AsLongLong + op
+encode - the minimal C-API surface, already minimal) / **writer 39%**
+(emit_key + memmove + d2s - canonical formatting rtoml's serde also
+pays) / rest runtime. The writer's frame machinery is a small slice
+of its half, so the flat fast-path ceiling (skip frames for
+container-free tables) prices at ~10% total - under the gap. The only
+architecture that could close it is a one-pass direct emit bypassing
+the writer, which the streaming-dump experiment (2026-09-27, this
+ledger) already measured a WASH with a deep_tables regression - wall
+time is memory traffic + object traversal, not bookkeeping. The
+structural note stands: rtoml serializes in one PyO3/serde pass;
+teptris-py's two-pass costs are the price of the engine-canonical
+writer, and dumps_doc (the retained-document path) wins the
+roundtrip 9/9 at 3.0-10.1x for hosts that can hold the doc.
