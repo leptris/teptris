@@ -32,6 +32,18 @@ void put_int(std::vector<uint8_t> &s, int64_t v)
     }
 }
 
+/* a raw u32-length-prefixed span with no op byte (the DATETIME-TEXT
+ * payload carries its own length after 0x0F) */
+void put_span(std::vector<uint8_t> &s, const char *v)
+{
+    size_t n = strlen(v);
+    s.push_back((uint8_t)(n & 0xFF));
+    s.push_back((uint8_t)((n >> 8) & 0xFF));
+    s.push_back((uint8_t)((n >> 16) & 0xFF));
+    s.push_back((uint8_t)((n >> 24) & 0xFF));
+    s.insert(s.end(), v, v + n);
+}
+
 void put_str(std::vector<uint8_t> &s, const char *v)
 {
     s.push_back(0x02);
@@ -400,5 +412,57 @@ TEST(Writer, Empty)
     EXPECT_EQ(teptris_writer_finish(w, &buf, &len), TEPTRIS_OK);
     EXPECT_EQ(len, 0u);
     free(buf);
+    teptris_writer_free(w);
+}
+
+TEST(Writer, DatetimeTextOpEmitsCanonical)
+{
+    /* the 0x0F text op: the host carries an RFC 3339 literal raw; the
+     * engine parses it at decode and emits the same canonical bytes
+     * the structured 0x07 op produces */
+    std::vector<uint8_t> s;
+    put_key(s, "d");
+    s.push_back(0x0F); /* DATETIME_TEXT */
+    put_span(s, "2026-11-02T10:00:00Z");
+    EXPECT_EQ(emit_and_parse(s), "d = 2026-11-02T10:00:00Z\n");
+}
+
+TEST(Writer, DatetimeTextNormalizesToCanonical)
+{
+    /* a ms-precision ISO string (Date.toISOString's shape) parses to
+     * fields and re-emits canonical - zero nanoseconds drop the
+     * fraction, byte-identical with the structured-op path */
+    std::vector<uint8_t> s;
+    put_key(s, "d");
+    s.push_back(0x0F);
+    put_span(s, "2026-11-02T10:00:00.000Z");
+    EXPECT_EQ(emit_and_parse(s), "d = 2026-11-02T10:00:00Z\n");
+}
+
+TEST(Writer, DatetimeTextRejectsNonDatetime)
+{
+    /* a charset-passing, shape-invalid literal is ERR_ARG - the
+     * host's pre-filter (charset + shape regex) must hold */
+    std::vector<uint8_t> s;
+    put_key(s, "x");
+    s.push_back(0x0F);
+    put_span(s, "9999-99-99");
+    teptris_writer *w = teptris_writer_new();
+    ASSERT_NE(w, nullptr);
+    EXPECT_EQ(teptris_writer_feed(w, s.data(), s.size()),
+              TEPTRIS_ERR_ARG);
+    teptris_writer_free(w);
+}
+
+TEST(Writer, DatetimeTextRejectsTruncatedAndTrailing)
+{
+    std::vector<uint8_t> s;
+    put_key(s, "x");
+    s.push_back(0x0F);
+    put_span(s, "1979-05-27T"); /* shape-prefix only: trailing junk */
+    teptris_writer *w = teptris_writer_new();
+    ASSERT_NE(w, nullptr);
+    EXPECT_EQ(teptris_writer_feed(w, s.data(), s.size()),
+              TEPTRIS_ERR_ARG);
     teptris_writer_free(w);
 }

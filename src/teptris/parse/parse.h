@@ -64,6 +64,12 @@ teptris_status teptris_parse_key_path(teptris_parser *ps,
 /* datetime.c */
 bool teptris_datetime_lookahead(const teptris_parser *ps);
 teptris_status teptris_parse_datetime(teptris_parser *ps, teptris_node **out);
+/* classify a standalone literal: fills dt + kind when s..s+len is
+ * EXACTLY one datetime (trailing bytes -> ERR_SYNTAX, the caller
+ * keeps it a plain string) */
+teptris_status teptris_datetime_from_str(const char *s, size_t len,
+                                         teptris_datetime *dt,
+                                         teptris_kind *kind);
 
 /* parser.c: skip space/tab (parser loop) — arrays also allow newlines
  * and comments. Both validate comment contents. */

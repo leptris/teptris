@@ -908,3 +908,44 @@ as the resource model resolves more cases).
 Reproduce: corpora in /tmp/perf are generated inline in the session
 notes; the tombi CLI builds from rust/main at the pin above with
 `cargo build --release`.
+
+## JS dumps: the datetime-text op (2026-11-09, darwin/arm64, node 24, best-of-40)
+
+The JS dumps tier's datetime cost was JS-side: every RFC 3339-shaped
+string paid a regex + `parseDateTime` field extraction before the
+structured `0x07` op. Writer op `0x0F DATETIME-TEXT` (engine 0.3.27)
+carries the literal raw and the engine parses it at op decode
+(`teptris_datetime_from_str`), emitting identical canonical bytes.
+
+Same-host A/B (old walk -> text op): datetime_heavy 25.10 -> 14.50 ms
+(-42%), and vs smol-toml 34.15 ms = **2.36x** (the ledger standing was
+1.96x on the CI host). deep_tables flips 0.99x -> 1.01x, table_heavy
+0.91x -> 1.12x, mixed 1.14x -> 1.27x. Final tier vs smol-toml 2026-11-09:
+**6/9 wins** (datetime_heavy 2.36x, mixed 1.27x, scalar_int 1.16x,
+cargo_like 1.12x, table_heavy 1.12x, deep_tables 1.01x); losses
+array_heavy 0.81x, scalar_string 0.80x, scalar_float 0.90x — the
+host-object walk vs smol's own-AST walk, unchanged structural residual.
+
+## Dead end: the JSON-bridge dump architecture (2026-11-09)
+
+The "different walk structure" the GAP cell named was tried end to
+end: `JSON.stringify` (V8's C++ walk) into a new engine
+json-to-TOML surface (schema JSON reader -> writer ops). Measured
+(darwin/arm64, node 24, wasm -O3): stringify alone costs 13.5-18.6 ms
+on the corpus shapes — approximately smol's ENTIRE dumps time — and
+the engine re-parse (json_read + op encode + writer) adds 15-35 ms in
+wasm. datetime shapes won (2.2x, the JS datetime parse left the
+thread), but the flat shapes regressed to ~1.9x BEHIND smol
+(scalar_float 95 ms before the s2d fix). The architecture's floor is
+the stringify itself; the op-stream walk with the text op dominates
+it on every shape. Engine side deleted; the useful fragments kept:
+`teptris_datetime_from_str` (now the writer text-op's parser), the
+ryu s2d in the schema JSON reader, and the 512 JSON depth ceiling.
+
+Two measurement traps recorded: (1) emscripten's musl `strtod` costs
+~1.3 us/float in wasm — 78 ms on a 60k-float document the native
+build does in 6 ms; the engine's ryu s2d replaces libc strtod
+everywhere JSON floats parse (schema compile benefits too).
+(2) `TextEncoder.encodeInto` LOSES to the inline per-char ASCII loop
+for string values (the subarray view allocation dominates; 11.51 ->
+12.17 ms on scalar_string) — the loop stays.

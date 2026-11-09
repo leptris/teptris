@@ -9,9 +9,10 @@
 #include <string.h>
 
 #include "json_read.h"
+#include "teptris/common/ryu/ryu_parse.h"
 #include "teptris/memory/arena.h"
 
-#define JSON_MAX_DEPTH 128
+#define JSON_MAX_DEPTH 512
 
 struct jv {
     jv_kind kind;
@@ -403,7 +404,6 @@ static jv *jvalue(jctx *c) {
         memcpy(tmp, c->src + start, tlen);
         tmp[tlen] = '\0';
         v = teptris_arena_alloc(c->a, sizeof(jv));
-        *v = (jv){ .num = strtod(tmp, NULL) };
         if (integral) {
             errno = 0;
             char *end = NULL;
@@ -412,10 +412,28 @@ static jv *jvalue(jctx *c) {
                 v->kind = JV_INT;
                 v->i = (int64_t)i;
             } else {
-                v->kind = JV_NUM;
+                /* out-of-int64 JSON integer: the float view, parsed
+                 * with the engine's ryu s2d - libc strtod costs
+                 * ~1.3us/float in wasm (musl), ryu is the same fast
+                 * correct parse the TOML number path uses */
+                double num = 0;
+                if (teptris_ryu_s2d_n(tmp, (int)tlen, &num) !=
+                    TEPTRIS_RYU_SUCCESS) {
+                    jfail(c, "invalid number");
+                    c->depth--;
+                    return NULL;
+                }
+                *v = (jv){ .kind = JV_NUM, .num = num };
             }
         } else {
-            v->kind = JV_NUM;
+            double num = 0;
+            if (teptris_ryu_s2d_n(tmp, (int)tlen, &num) !=
+                TEPTRIS_RYU_SUCCESS) {
+                jfail(c, "invalid number");
+                c->depth--;
+                return NULL;
+            }
+            *v = (jv){ .kind = JV_NUM, .num = num };
         }
     } else {
         jfail(c, "unexpected character");
