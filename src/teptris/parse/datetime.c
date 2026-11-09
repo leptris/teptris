@@ -68,27 +68,38 @@ static teptris_status finish_node(teptris_parser *ps, teptris_kind kind,
     return TEPTRIS_OK;
 }
 
-teptris_status teptris_parse_datetime(teptris_parser *ps, teptris_node **out)
+/* The datetime grammar core: parse one datetime at p..end into dt.
+ * No DOM, no parser state — teptris_parse_datetime wraps this with
+ * node creation, and teptris_datetime_from_str uses it to classify a
+ * standalone literal (the json-to-toml dump path). Errors come back
+ * as ERR_SYNTAX with a message in *err. */
+static teptris_status dt_scan(const char *p, const char *end,
+                              teptris_datetime *dt, teptris_kind *kind,
+                              size_t *consumed, const char **err)
 {
-    const char *p = ps->p;
-    const char *end = ps->end;
     const char *start = p;
-    teptris_datetime dt;
-    memset(&dt, 0, sizeof(dt));
+    memset(dt, 0, sizeof(*dt));
 
-    if (p[4] == '-') {
+    if (end - p < 5) {
+        *err = "datetime too short";
+        return TEPTRIS_ERR_SYNTAX;
+    }
+
+    if (end - p >= 10 && p[4] == '-') {
         int y = num4(p);
         int mo = d2(p + 5);
         int da = d2(p + 8);
         if (mo < 1 || mo > 12) {
-            return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "invalid month");
+            *err = "invalid month";
+            return TEPTRIS_ERR_SYNTAX;
         }
         if (da < 1 || da > days_in_month(y, mo)) {
-            return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "invalid day");
+            *err = "invalid day";
+            return TEPTRIS_ERR_SYNTAX;
         }
-        dt.year = (int32_t)y;
-        dt.month = (uint8_t)mo;
-        dt.day = (uint8_t)da;
+        dt->year = (int32_t)y;
+        dt->month = (uint8_t)mo;
+        dt->day = (uint8_t)da;
         p += 10;
 
         bool has_time =
@@ -96,42 +107,46 @@ teptris_status teptris_parse_datetime(teptris_parser *ps, teptris_node **out)
             (size_t)(end - p) >= 6 && is_dig(p + 1) && is_dig(p + 2) &&
             p[3] == ':' && is_dig(p + 4) && is_dig(p + 5);
         if (!has_time) {
-            return finish_node(ps, TEPTRIS_DATE_LOCAL, &dt,
-                               (size_t)(p - start), out);
+            *kind = TEPTRIS_DATE_LOCAL;
+            *consumed = (size_t)(p - start);
+            return TEPTRIS_OK;
         }
         p++; /* separator */
 
         int h = d2(p);
         int mi = d2(p + 3);
         int s = 0; /* TOML 1.1: seconds optional */
-        size_t consumed = 5;
+        size_t sec_consumed = 5;
         if ((size_t)(end - p) >= 6 && p[5] == ':') {
             if ((size_t)(end - p) < 8 || !is_dig(p + 6) || !is_dig(p + 7)) {
-                return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX,
-                                   "invalid second");
+                *err = "invalid second";
+                return TEPTRIS_ERR_SYNTAX;
             }
             s = d2(p + 6);
-            consumed = 8;
+            sec_consumed = 8;
         }
         if (h > 23) {
-            return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "invalid hour");
+            *err = "invalid hour";
+            return TEPTRIS_ERR_SYNTAX;
         }
         if (mi > 59) {
-            return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "invalid minute");
+            *err = "invalid minute";
+            return TEPTRIS_ERR_SYNTAX;
         }
         if (s > 60) {
-            return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "invalid second");
+            *err = "invalid second";
+            return TEPTRIS_ERR_SYNTAX;
         }
-        dt.hour = (uint8_t)h;
-        dt.minute = (uint8_t)mi;
-        dt.second = (uint8_t)s;
-        p += consumed;
+        dt->hour = (uint8_t)h;
+        dt->minute = (uint8_t)mi;
+        dt->second = (uint8_t)s;
+        p += sec_consumed;
 
         if (p < end && *p == '.') {
             p++;
             if (p >= end || !is_dig(p)) {
-                return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX,
-                                   "expected fractional digits");
+                *err = "expected fractional digits";
+                return TEPTRIS_ERR_SYNTAX;
             }
             uint32_t scale = 100000000u; /* 9 digits */
             uint32_t ns = 0;
@@ -142,14 +157,15 @@ teptris_status teptris_parse_datetime(teptris_parser *ps, teptris_node **out)
                 }
                 p++; /* beyond 9 digits: validated, then truncated */
             }
-            dt.nanosecond = ns;
+            dt->nanosecond = ns;
         }
 
         if (p < end && (*p == 'Z' || *p == 'z')) {
-            dt.offset_seconds = 0;
+            dt->offset_seconds = 0;
             p++;
-            return finish_node(ps, TEPTRIS_DATETIME_OFFSET, &dt,
-                               (size_t)(p - start), out);
+            *kind = TEPTRIS_DATETIME_OFFSET;
+            *consumed = (size_t)(p - start);
+            return TEPTRIS_OK;
         }
         if (p < end && (*p == '+' || *p == '-') &&
             (size_t)(end - p) >= 6 && is_dig(p + 1) && is_dig(p + 2) &&
@@ -158,49 +174,55 @@ teptris_status teptris_parse_datetime(teptris_parser *ps, teptris_node **out)
             int oh = d2(p + 1);
             int om = d2(p + 4);
             if (oh > 23 || om > 59) {
-                return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX,
-                                   "invalid UTC offset");
+                *err = "invalid UTC offset";
+                return TEPTRIS_ERR_SYNTAX;
             }
-            dt.offset_seconds = sign * (oh * 3600 + om * 60);
+            dt->offset_seconds = sign * (oh * 3600 + om * 60);
             p += 6;
-            return finish_node(ps, TEPTRIS_DATETIME_OFFSET, &dt,
-                               (size_t)(p - start), out);
+            *kind = TEPTRIS_DATETIME_OFFSET;
+            *consumed = (size_t)(p - start);
+            return TEPTRIS_OK;
         }
-        return finish_node(ps, TEPTRIS_DATETIME_LOCAL, &dt,
-                           (size_t)(p - start), out);
+        *kind = TEPTRIS_DATETIME_LOCAL;
+        *consumed = (size_t)(p - start);
+        return TEPTRIS_OK;
     }
 
     /* time-only; TOML 1.1: seconds optional */
     int h = d2(p);
     int mi = d2(p + 3);
     int s = 0;
-    size_t consumed = 5;
+    size_t sec_consumed = 5;
     if ((size_t)(end - p) >= 8 && p[5] == ':') {
         if (!is_dig(p + 6) || !is_dig(p + 7)) {
-            return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "invalid second");
+            *err = "invalid second";
+            return TEPTRIS_ERR_SYNTAX;
         }
         s = d2(p + 6);
-        consumed = 8;
+        sec_consumed = 8;
     }
     if (h > 23) {
-        return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "invalid hour");
+        *err = "invalid hour";
+        return TEPTRIS_ERR_SYNTAX;
     }
     if (mi > 59) {
-        return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "invalid minute");
+        *err = "invalid minute";
+        return TEPTRIS_ERR_SYNTAX;
     }
     if (s > 60) {
-        return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX, "invalid second");
+        *err = "invalid second";
+        return TEPTRIS_ERR_SYNTAX;
     }
-    dt.hour = (uint8_t)h;
-    dt.minute = (uint8_t)mi;
-    dt.second = (uint8_t)s;
-    p += consumed;
+    dt->hour = (uint8_t)h;
+    dt->minute = (uint8_t)mi;
+    dt->second = (uint8_t)s;
+    p += sec_consumed;
 
     if (p < end && *p == '.') {
         p++;
         if (p >= end || !is_dig(p)) {
-            return tep_fail_at(ps, NULL, TEPTRIS_ERR_SYNTAX,
-                               "expected fractional digits");
+            *err = "expected fractional digits";
+            return TEPTRIS_ERR_SYNTAX;
         }
         uint32_t scale = 100000000u;
         uint32_t ns = 0;
@@ -211,8 +233,43 @@ teptris_status teptris_parse_datetime(teptris_parser *ps, teptris_node **out)
             }
             p++;
         }
-        dt.nanosecond = ns;
+        dt->nanosecond = ns;
     }
 
-    return finish_node(ps, TEPTRIS_TIME_LOCAL, &dt, (size_t)(p - start), out);
+    *kind = TEPTRIS_TIME_LOCAL;
+    *consumed = (size_t)(p - start);
+    return TEPTRIS_OK;
+}
+
+teptris_status teptris_parse_datetime(teptris_parser *ps, teptris_node **out)
+{
+    const char *p = ps->p;
+    const char *end = ps->end;
+    const char *err = NULL;
+    teptris_datetime dt;
+    teptris_kind kind;
+    size_t consumed;
+    teptris_status st = dt_scan(p, end, &dt, &kind, &consumed, &err);
+    if (st != TEPTRIS_OK) {
+        return tep_fail_at(ps, NULL, st, err);
+    }
+    return finish_node(ps, kind, &dt, consumed, out);
+}
+
+teptris_status teptris_datetime_from_str(const char *s, size_t len,
+                                         teptris_datetime *dt,
+                                         teptris_kind *kind)
+{
+    const char *err = NULL;
+    size_t consumed;
+    teptris_status st = dt_scan(s, s + len, dt, kind, &consumed, &err);
+    if (st != TEPTRIS_OK) {
+        return st;
+    }
+    /* a standalone literal must be the WHOLE string: trailing bytes
+     * make it a plain string, not a datetime */
+    if (consumed != len) {
+        return TEPTRIS_ERR_SYNTAX;
+    }
+    return TEPTRIS_OK;
 }

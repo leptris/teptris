@@ -20,6 +20,12 @@
  *   0x05 FALSE
  *   0x06 TRUE
  *   0x07 DATETIME  u8 kind(4..7) <25 B, same layout as flatten>
+ *   0x0F DATETIME-TEXT u32 len <bytes> - an RFC 3339 literal carried
+ *                  as raw text (the JS dump's datetime shape); the
+ *                  engine parses it with teptris_datetime_from_str at
+ *                  decode (non-datetime text = ERR_ARG). Emits the
+ *                  same canonical bytes as the structured op - the
+ *                  host never parses datetimes.
  *   0x08 BEGIN-TABLE        section header ([k] / [a.b])
  *   0x09 BEGIN-ARRAY        inline array as a value
  *   0x0A BEGIN-AOT          array-of-tables ([[k]], elements via BEGIN-TABLE)
@@ -36,6 +42,7 @@
 #include <string.h>
 
 #include "emit_shared.h"
+#include "teptris/parse/parse.h"
 #include "teptris/teptris.h"
 
 enum {
@@ -53,7 +60,8 @@ enum {
     W_BEGIN_INLINE_TABLE = 0x0B,
     W_CLOSE = 0x0C,
     W_EMPTY_TABLE = 0x0D,
-    W_EMPTY_ARRAY = 0x0E
+    W_EMPTY_ARRAY = 0x0E,
+    W_DATETIME_TEXT = 0x0F
 };
 
 enum {
@@ -406,6 +414,36 @@ teptris_status teptris_writer_feed(teptris_writer *w, const uint8_t *ops,
                 break;
             }
             emit_dt(&w->out, &dt, (teptris_kind)kb);
+            w_end_line(w);
+            break;
+        }
+        case W_DATETIME_TEXT: {
+            if (i + 4 > len) {
+                w->st = TEPTRIS_ERR_ARG;
+                break;
+            }
+            uint32_t tlen = (uint32_t)ops[i] |
+                            ((uint32_t)ops[i + 1] << 8) |
+                            ((uint32_t)ops[i + 2] << 16) |
+                            ((uint32_t)ops[i + 3] << 24);
+            i += 4;
+            if (i + tlen > len) {
+                w->st = TEPTRIS_ERR_ARG;
+                break;
+            }
+            teptris_datetime dt;
+            teptris_kind dk;
+            if (teptris_datetime_from_str((const char *)ops + i, tlen, &dt,
+                                          &dk) != TEPTRIS_OK) {
+                w->st = TEPTRIS_ERR_ARG;
+                break;
+            }
+            i += tlen;
+            w_keyed_prefix(w);
+            if (w->st != TEPTRIS_OK) {
+                break;
+            }
+            emit_dt(&w->out, &dt, dk);
             w_end_line(w);
             break;
         }
