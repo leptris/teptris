@@ -71,19 +71,27 @@ enum {
     F_ITAB    /* inline table */
 };
 
+/* keys ride inline: the op grammar caps a key at 255 bytes, so no
+ * key ever needs the heap — the per-key malloc/free pair profiled at
+ * ~27% of the writer's flat-dump hot path (2026-11-11) */
+#define W_KEY_INLINE 256
+
 typedef struct wframe {
     struct wframe *down;
     int kind;
-    char *key;         /* TBL section component; AOT key; else NULL */
+    char *key;             /* TBL section component; AOT key; else NULL
+                              (always points INTO key_buf when set) */
     size_t key_len;
-    int first;         /* inline separator state */
-    int saw_subtable;  /* TBL: a nested section was opened under us */
+    char key_buf[W_KEY_INLINE];
+    int first;             /* inline separator state */
+    int saw_subtable;      /* TBL: a nested section was opened under us */
 } wframe;
 
 struct teptris_writer {
     ebuf out;
-    char *key; /* pending key */
+    char *key; /* pending key (points INTO key_buf when set) */
     size_t key_len;
+    char key_buf[W_KEY_INLINE];
     wframe *top;
     int finished;
     teptris_status st;
@@ -112,65 +120,31 @@ void teptris_writer_free(teptris_writer *w)
     while (w->top != NULL) {
         wframe *f = w->top;
         w->top = f->down;
-        free(f->key);
         free(f);
     }
-    free(w->key);
     free(w->out.p);
     free(w);
 }
 
 static void w_take_key(teptris_writer *w, const char *k, size_t klen)
 {
-    free(w->key);
-    if (klen > 0) {
-        w->key = malloc(klen);
-        if (w->key == NULL) {
-            w->key = NULL;
-            w->key_len = 0;
-            w->st = TEPTRIS_ERR_ALLOC;
-            return;
-        }
-        memcpy(w->key, k, klen);
-        w->key_len = klen;
-    } else {
-        /* an empty key stays PENDING: NULL means "no key", and the
-         * keyed-prefix checks treat NULL as absent. The parse side
-         * accepts '' = 1, so the writer must emit it ('' via emit_key) */
-        w->key = malloc(1);
-        if (w->key == NULL) {
-            w->key_len = 0;
-            w->st = TEPTRIS_ERR_ALLOC;
-            return;
-        }
-        w->key[0] = '\0';
-        w->key_len = 0;
+    /* NULL means "no key"; the empty key stays PENDING as a present
+     * but zero-length buffer (the parse side accepts '' = 1, so the
+     * writer must emit it via emit_key) */
+    if (klen >= W_KEY_INLINE) {
+        w->st = TEPTRIS_ERR_ARG; /* the grammar caps keys at 255 */
+        return;
     }
+    memcpy(w->key_buf, k, klen);
+    w->key_buf[klen] = '\0';
+    w->key = w->key_buf;
+    w->key_len = klen;
 }
 
 static void w_clear_key(teptris_writer *w)
 {
-    free(w->key);
     w->key = NULL;
     w->key_len = 0;
-}
-
-/* push with an OWNED key (transfers the malloc from the caller) */
-static wframe *w_push_steal(teptris_writer *w, int kind, char *k,
-                            size_t klen)
-{
-    wframe *f = calloc(1, sizeof(*f));
-    if (f == NULL) {
-        free(k);
-        w->st = TEPTRIS_ERR_ALLOC;
-        return NULL;
-    }
-    f->down = w->top;
-    f->kind = kind;
-    f->key = k;
-    f->key_len = klen;
-    w->top = f;
-    return f;
 }
 
 static wframe *w_push(teptris_writer *w, int kind, const char *k,
@@ -183,14 +157,10 @@ static wframe *w_push(teptris_writer *w, int kind, const char *k,
     }
     f->down = w->top;
     f->kind = kind;
-    if (klen > 0) {
-        f->key = malloc(klen);
-        if (f->key == NULL) {
-            free(f);
-            w->st = TEPTRIS_ERR_ALLOC;
-            return NULL;
-        }
-        memcpy(f->key, k, klen);
+    if (k != NULL) {
+        memcpy(f->key_buf, k, klen);
+        f->key_buf[klen] = '\0';
+        f->key = f->key_buf;
         f->key_len = klen;
     }
     w->top = f;
@@ -476,11 +446,11 @@ teptris_status teptris_writer_feed(teptris_writer *w, const uint8_t *ops,
             eb_c(&w->out, '[');
             w_path(w, 1);
             eb_put(&w->out, "]\n", 2);
-            char *k = w->key; /* frame takes ownership */
+            const char *k = w->key;
             size_t klen = w->key_len;
             w->key = NULL;
             w->key_len = 0;
-            w_push_steal(w, F_TABLE, k, klen);
+            w_push(w, F_TABLE, k, klen);
             break;
         }
         case W_BEGIN_AOT: {
@@ -496,11 +466,11 @@ teptris_status teptris_writer_feed(teptris_writer *w, const uint8_t *ops,
             if (t != NULL) {
                 t->saw_subtable = 1;
             }
-            char *k = w->key; /* frame takes ownership */
+            const char *k = w->key;
             size_t klen = w->key_len;
             w->key = NULL;
             w->key_len = 0;
-            w_push_steal(w, F_AOT, k, klen);
+            w_push(w, F_AOT, k, klen);
             break;
         }
         case W_BEGIN_ARRAY: {
@@ -567,7 +537,6 @@ teptris_status teptris_writer_feed(teptris_writer *w, const uint8_t *ops,
             }
             int kind = f->kind;
             w->top = f->down;
-            free(f->key);
             free(f);
             if (kind == F_ARRAY) {
                 eb_c(&w->out, ']');

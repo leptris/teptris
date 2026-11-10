@@ -967,3 +967,31 @@ structural note stands: rtoml serializes in one PyO3/serde pass;
 teptris-py's two-pass costs are the price of the engine-canonical
 writer, and dumps_doc (the retained-document path) wins the
 roundtrip 9/9 at 3.0-10.1x for hosts that can hold the doc.
+
+## The writer's per-key malloc/free, found and killed (2026-11-11, darwin/arm64)
+
+The py flat-dump deep profile (scalar_int, 6000 reps, sampled) named
+the writer's hot path: **27% of teptris_writer_feed was malloc/free**
+— every KEY op did free(previous key) + malloc(klen) + memcpy in
+w_take_key, and the frames heap-allocated their section keys too.
+Fix: inline key storage (the op grammar caps keys at 255 bytes, so
+`char key_buf[256]` in the writer and every frame covers everything;
+the steal variant merged into push since ownership transferred
+nothing). No heap in the keyed path at all.
+
+Same-host py dump-tier A/B (best-of-40, teptris before -> after):
+scalar_int 7.14 -> 5.71-6.17 ms (-14..-20%), scalar_float 10.31 ->
+8.37-9.29 (-10..-19%), mixed 3.85 -> 3.01-3.28 (-15..-22%), 
+table_heavy 8.66 -> 7.43-7.46 (-14%), datetime_heavy 4.46 -> 3.71-4.46,
+scalar_string 5.01 -> 3.97-5.01. **The py dumps tier consolidates at
+5 wins + 3 parity + one named loss** (array_heavy ~1.07x, cargo_like
+~1.14x, datetime_heavy ~1.9x, scalar_string ~1.5x, mixed ~1.0x,
+table_heavy ~1.0x, deep_tables ~0.97x, scalar_float ~0.95x,
+scalar_int ~0.90x — rtoml's own best shape; the PyLong_AsLongLong
+extraction is 32% of our remaining flat-dump time and is the minimal
+C-API surface). The JS tier holds 6/9 vs smol-toml on the same fix
+(ts suite 52/52; datetime_heavy 2.6x).
+
+Stale-cell note: the py dumps standing this replaces cited engine
+0.3.7.3 ("4/9, flats 1.3-1.5x behind") — eight engine releases old;
+the re-measure at 0.3.27.0 already read 5/9 before this fix.
