@@ -141,7 +141,7 @@ def run_case(schema, data, dialect=None):
     return r.returncode
 
 
-total = passed = skipped = skipped_draft = 0
+total = passed = skipped = skipped_draft = skipped_external = 0
 failures = []
 for f in FILES:
     if not os.path.exists(f):
@@ -151,6 +151,15 @@ for f in FILES:
         compat = case.get("compatibility")
         if not dialect_applies(compat, 2020):
             skipped_draft += 1
+            continue
+        if "externalSchemas" in case:
+            # the case registers metaschema resources by URI; the
+            # single-document subset cannot feed them (the engine's
+            # unresolvable-$schema fallback keeps all vocabularies,
+            # which flips the $vocabulary semantics under test).
+            # Classified, never silent - the $vocabulary gate itself
+            # is unit-covered in-tree.
+            skipped_external += 1
             continue
         schema = case.get("schema", {})
         if isinstance(schema, dict) and "$schema" not in schema:
@@ -181,7 +190,8 @@ for f in FILES:
                                  json.dumps(t["data"])[:50], t["valid"], rc))
 
 print(f"passed {passed}/{total}, skipped {skipped} "
-      f"(other-draft cases not applicable to 2020-12: {skipped_draft})")
+      f"(other-draft cases not applicable to 2020-12: {skipped_draft}, "
+      f"external-schema registration: {skipped_external})")
 for x in failures[:200]:
     print("FAIL", x)
 sys.exit(1 if failures else 0)
