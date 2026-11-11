@@ -95,7 +95,7 @@ jobs:
           git -C /tmp/suite-sota checkout --detach 38dea932b02986f496345bf007108277777630bf
       - name: The sota draft-2020-12 gate must be 1316/1794
         run: |
-          SUITE_DIR=/tmp/suite-sota/tests/draft2020-12 \
+          SUITE_DIR=/tmp/suite-sota/validation/tests \
             python3 scripts/sota_suite_check.py | tee /tmp/sota.log
           grep -q "passed 1316/1794" /tmp/sota.log
 
