@@ -2,7 +2,7 @@
 """The official JSON Schema test suite (draft 2020-12) through teptris.
 
 Suite: github.com/json-schema-org/JSON-Schema-Test-Suite, pinned at
-ed0ebd31d0a83fd79e99a32aa0c884b966ada057. Point SUITE_DIR at a clone:
+245a45abc90190c0bff04d97e6d2b541b4bb9f12. Point SUITE_DIR at a clone:
 
     git clone --depth 1 https://github.com/json-schema-org/JSON-Schema-Test-Suite
     SUITE_DIR=$PWD/JSON-Schema-Test-Suite/tests/draft2020-12 \
