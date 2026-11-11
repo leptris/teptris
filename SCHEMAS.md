@@ -230,3 +230,25 @@ against conforming and violating documents.
 every skip classified.
 `test/fuzz/fuzz_schema.c` — the E3 harness: schema/doc slicing, the
 buffer contracts, compile/free loops under ASan/UBSan.
+
+## The unified-suite era (2026-11-12)
+
+Upstream reorganized the official suite: the per-draft trees became
+version-agnostic keyword files whose cases carry `compatibility`
+ranges and `format-annotation` / `format-assertion` stance tags. The
+gate (`scripts/sota_suite_check.py`) now applies upstream's own
+`dialect_applies` rule at 2020-12, runs `format-annotation` cases
+under the declared draft (spec default — teptris annotates) and
+`format-assertion` cases under the sanctioned assertion dialect
+(teptris asserts), and passes **1316/1794** with 288
+TOML-unrepresentable skips + 182 other-draft cases.
+
+The unified tree surfaced the old gate's blind spot: the classic
+per-draft view excluded the assert-flavored format coverage (the old
+`optional/` tree), so **172 format-precision cases** were never run.
+They are now the named SOTA work list, family by family (idn-hostname
+38, email 37, hostname 26 — punycode-label validity —, uri 16,
+uri-reference 10, duration 10, iri 8, iri-reference 7, idn-email 6,
+uri-template 4, time/date-time/relative-json-pointer 2 each, uuid /
+regex / ipv6 / vocabulary 1 each). The full inventory with
+expectations lives in the suite itself; the gate runs it verbatim.
