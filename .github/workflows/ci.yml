@@ -91,8 +91,8 @@ jobs:
       - name: Fetch the draft-2020-12 gate pin (sota)
         run: |
           git clone --depth 1 https://github.com/json-schema-org/JSON-Schema-Test-Suite /tmp/suite-sota
-          git -C /tmp/suite-sota fetch --depth 1 origin 38dea93
-          git -C /tmp/suite-sota checkout --detach 38dea93
+          git -C /tmp/suite-sota fetch --depth 1 origin 038dea932b02986f496345bf007108277777630bf
+          git -C /tmp/suite-sota checkout --detach 38dea932b02986f496345bf007108277777630bf
       - name: The sota draft-2020-12 gate must be 1316/1794
         run: |
           SUITE_DIR=/tmp/suite-sota/tests/draft2020-12 \
