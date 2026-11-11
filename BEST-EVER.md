@@ -9,6 +9,19 @@ family gap. This document is the bar, the current honest standing, and
 the plan to close every remaining gap. It is refreshed at every
 release.
 
+## Mission status
+
+**The ledger table below carries no GAP cells (condition met
+2026-11-11).** Every dimension reads measured-best, parity with a
+stated reason, or a named loss with its floor profiled: the two
+residual cells are the JS dumps' three shapes (0.80-0.90x — the
+host-object walk vs smol's own-AST walk, attacked from both
+architectures, LEDGER) and py dumps' scalar_int (~0.90x — rtoml's own
+best shape, the PyLong-extraction floor, 32% of the remaining
+flat-dump time). "Parity is not best" stands: those cells are not
+claimed as wins — they are named, measured, and carry their next
+lever's price in the LEDGER.
+
 ## The bar — six dimensions
 
 A surface can call itself best only when every dimension below is
