@@ -132,15 +132,149 @@ static bool check_datetime(const char *s, size_t len) {
 /* the crate's email check: a leading dot fails, ".." fails, a dot
  * directly before "@" fails, an "@" ends the (unvalidated) domain;
  * everything else about the domain is accepted */
-static bool check_email(const char *s, size_t len) {
-    if (len == 0 || s[0] == '.') return false;
-    for (size_t i = 1; i < len; i++) {
-        if (s[i] == '@') {
-            return s[i - 1] != '.';
+/* RFC 5322 addr-spec (the practical ASCII subset the suite tests).
+ * Local: dot-atom (atext incl. ~) or a quoted string (\ escapes one
+ * VCHAR; internal dots/spaces/@ fine; "" empty fine). Domain: LDH
+ * dot-atom labels (no leading/trailing '-', single-label "io" fine)
+ * or an address literal [dotted-quad 0-255 | IPv6:]. One @, ASCII
+ * only, no CR/LF/space/controls anywhere, no display names. */
+static bool atext(char c)
+{
+    if (is_ascii_alnum(c)) return true;
+    return c == '!' || c == '#' || c == '$' || c == '%' || c == '&' ||
+           c == '\'' || c == '*' || c == '+' || c == '-' || c == '/' ||
+           c == '=' || c == '?' || c == '^' || c == '_' || c == '`' ||
+           c == '{' || c == '|' || c == '}' || c == '~';
+}
+
+static bool quoted_local(const char *s, size_t len, size_t *end)
+{
+    if (s[0] != '"') return false;
+    size_t i = 1;
+    for (;;) {
+        if (i >= len) return false; /* unterminated */
+        char c = s[i];
+        if (c == '"') {
+            *end = i + 1;
+            return true; /* "" alone is legal; the caller checks what
+                            follows */
         }
-        if (s[i] == '.' && s[i - 1] == '.') return false;
+        if (c == '\\') {
+            if (i + 1 >= len) return false;
+            char n = s[i + 1];
+            if (n <= 0x1f || n >= 0x7f) return false;
+            i += 2;
+            continue;
+        }
+        if (c == '\n' || c == '\r' || c < 0x20 || c >= 0x7f) return false;
+        i++;
     }
-    return false; /* no @ */
+}
+
+static bool dot_atom(const char *s, size_t len, bool atext_only)
+{
+    if (len == 0 || s[0] == '.' || s[len - 1] == '.') return false;
+    size_t dots = 0;
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        if (c == '.') {
+            if (s[i + 1] == '.') return false;
+            dots++;
+            continue;
+        }
+        if (atext_only ? !atext(c) : !(is_ascii_alnum(c) || c == '-'))
+            return false;
+    }
+    (void)dots;
+    return true;
+}
+
+static bool check_ipv6(const char *s, size_t len);
+
+static bool domain_literal(const char *s, size_t len)
+{
+    /* s = "[...]" inclusive */
+    if (len < 3 || s[0] != '[' || s[len - 1] != ']') return false;
+    const char *in = s + 1;
+    size_t n = len - 2;
+    if (n >= 5 && (in[0] == 'I' || in[0] == 'i') &&
+        (in[1] == 'P' || in[1] == 'p') && in[2] == 'v' && in[3] == '6' &&
+        in[4] == ':') {
+        return check_ipv6(in + 5, n - 5);
+    }
+    /* dotted quad, each octet 0-255 */
+    int octets = 0, val = -1, digits = 0;
+    for (size_t i = 0; i <= n; i++) {
+        if (i == n || in[i] == '.') {
+            if (digits == 0 || digits > 3 || val < 0 || val > 255)
+                return false;
+            octets++;
+            val = -1;
+            digits = 0;
+        } else if (is_digit(in[i])) {
+            if (digits == 0) val = 0;
+            val = val * 10 + (in[i] - '0');
+            digits++;
+        } else {
+            return false;
+        }
+    }
+    return octets == 4;
+}
+
+static bool check_domain(const char *s, size_t len)
+{
+    if (len == 0) return false;
+    if (s[0] == '[') return domain_literal(s, len);
+    /* LDH dot-atom labels: alnum/hyphen, no leading/trailing '-' per
+     * label; "io"/"123.com"/"c--n.com" valid; non-ASCII invalid */
+    size_t label = 0;
+    for (size_t i = 0; i <= len; i++) {
+        char c = i < len ? s[i] : '.';
+        if (i == len || c == '.') {
+            if (label == 0) return false;
+            if (s[i - label] == '-' || s[i - 1] == '-') return false;
+            label = 0;
+            if (i == len) break;
+        } else if (is_ascii_alnum(c) || c == '-') {
+            label++;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool check_email(const char *s, size_t len)
+{
+    if (len == 0) return false;
+    for (size_t i = 0; i < len; i++) {
+        /* space/tab ride inside quoted locals; the unquoted paths
+         * reject them via atext/label rules. CRLF, controls and
+         * non-ASCII are banned outright (quoted or not). */
+        if (s[i] == '\n' || s[i] == '\r') return false;
+        if (s[i] < 0x20 && s[i] != ' ' && s[i] != '\t') return false;
+        if (s[i] >= 0x7f) return false;
+    }
+    size_t lend = 0, at = 0;
+    if (s[0] == '"') {
+        /* quoted local: scan the closing quote, then exactly one @ */
+        if (!quoted_local(s, len, &lend)) return false;
+        if (lend >= len || s[lend] != '@') return false;
+        at = lend;
+    } else {
+        int nat = 0;
+        for (size_t i = 0; i < len; i++) {
+            if (s[i] == '@') {
+                nat++;
+                at = i;
+            }
+        }
+        if (nat != 1) return false;
+        lend = at;
+        if (!dot_atom(s, at, true)) return false;
+    }
+    return check_domain(s + at + 1, len - at - 1);
 }
 
 /* the crate's hostname/idn-hostname check (one body for both):
