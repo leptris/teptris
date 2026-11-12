@@ -44,10 +44,24 @@
 #if defined(_MSC_VER)
 #include <intrin.h>
 
+#if defined(_WIN64)
 static inline uint32_t floor_log2(const uint64_t value) {
   long index;
   return _BitScanReverse64(&index, value) ? index : 64;
 }
+#else
+/* x86 MSVC has no 64-bit bit-scan intrinsic - split the halves */
+static inline uint32_t floor_log2(const uint64_t value) {
+  long index;
+  if (value == 0) return 64;
+  if (value >> 32) {
+    _BitScanReverse(&index, (unsigned long)(value >> 32));
+    return (uint32_t)index + 32;
+  }
+  _BitScanReverse(&index, (unsigned long)(value & 0xFFFFFFFFu));
+  return (uint32_t)index;
+}
+#endif
 
 #else
 
