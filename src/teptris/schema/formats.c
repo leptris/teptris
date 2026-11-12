@@ -167,13 +167,13 @@ static bool atext(char c)
            c == '{' || c == '|' || c == '}' || c == '~';
 }
 
-static bool quoted_local(const char *s, size_t len, size_t *end)
+static bool quoted_local(const char *s, size_t len, size_t *end, bool utf8)
 {
     if (s[0] != '"') return false;
     size_t i = 1;
     for (;;) {
         if (i >= len) return false; /* unterminated */
-        char c = s[i];
+        unsigned char c = (unsigned char)s[i];
         if (c == '"') {
             *end = i + 1;
             return true; /* "" alone is legal; the caller checks what
@@ -181,31 +181,31 @@ static bool quoted_local(const char *s, size_t len, size_t *end)
         }
         if (c == '\\') {
             if (i + 1 >= len) return false;
-            char n = s[i + 1];
-            if (n <= 0x1f || n >= 0x7f) return false;
+            unsigned char n = (unsigned char)s[i + 1];
+            if (n < 0x20 || n == 0x7f) return false;
+            if (!utf8 && n >= 0x80) return false;
             i += 2;
             continue;
         }
-        if (c == '\n' || c == '\r' || c < 0x20 || c >= 0x7f) return false;
+        if (c < 0x20 || c == 0x7f) return false;
+        if (!utf8 && c >= 0x80) return false;
         i++;
     }
 }
 
-static bool dot_atom(const char *s, size_t len, bool atext_only)
+static bool dot_atom(const char *s, size_t len, bool atext_only, bool utf8)
 {
     if (len == 0 || s[0] == '.' || s[len - 1] == '.') return false;
-    size_t dots = 0;
     for (size_t i = 0; i < len; i++) {
-        char c = s[i];
+        unsigned char c = (unsigned char)s[i];
         if (c == '.') {
-            if (s[i + 1] == '.') return false;
-            dots++;
+            if (i + 1 < len && s[i + 1] == '.') return false;
             continue;
         }
-        if (atext_only ? !atext(c) : !(is_ascii_alnum(c) || c == '-'))
-            return false;
+        bool ok = atext_only ? atext((char)c)
+                             : (is_ascii_alnum(c) || c == '-');
+        if (!ok && !(utf8 && c >= 0x80)) return false;
     }
-    (void)dots;
     return true;
 }
 
@@ -242,21 +242,22 @@ static bool domain_literal(const char *s, size_t len)
     return octets == 4;
 }
 
-static bool check_domain(const char *s, size_t len)
+static bool check_domain(const char *s, size_t len, bool utf8)
 {
     if (len == 0) return false;
     if (s[0] == '[') return domain_literal(s, len);
     /* LDH dot-atom labels: alnum/hyphen, no leading/trailing '-' per
-     * label; "io"/"123.com"/"c--n.com" valid; non-ASCII invalid */
+     * label; "io"/"123.com"/"c--n.com" valid; non-ASCII only for the
+     * idn flavor */
     size_t label = 0;
     for (size_t i = 0; i <= len; i++) {
-        char c = i < len ? s[i] : '.';
+        unsigned char c = i < len ? (unsigned char)s[i] : '.';
         if (i == len || c == '.') {
             if (label == 0) return false;
             if (s[i - label] == '-' || s[i - 1] == '-') return false;
             label = 0;
             if (i == len) break;
-        } else if (is_ascii_alnum(c) || c == '-') {
+        } else if (is_ascii_alnum(c) || c == '-' || (utf8 && c >= 0x80)) {
             label++;
         } else {
             return false;
@@ -265,21 +266,23 @@ static bool check_domain(const char *s, size_t len)
     return true;
 }
 
-static bool check_email(const char *s, size_t len)
+static bool check_email_generic(const char *s, size_t len, bool utf8)
 {
     if (len == 0) return false;
     for (size_t i = 0; i < len; i++) {
         /* space/tab ride inside quoted locals; the unquoted paths
-         * reject them via atext/label rules. CRLF, controls and
-         * non-ASCII are banned outright (quoted or not). */
-        if (s[i] == '\n' || s[i] == '\r') return false;
-        if (s[i] < 0x20 && s[i] != ' ' && s[i] != '\t') return false;
-        if (s[i] >= 0x7f) return false;
+         * reject them via atext/label rules. CRLF and controls are
+         * banned outright (quoted or not); non-ASCII only for the idn
+         * flavor. */
+        unsigned char c = (unsigned char)s[i];
+        if (c == '\n' || c == '\r') return false;
+        if (c < 0x20 && c != ' ' && c != '\t') return false;
+        if (!utf8 && c >= 0x7f) return false;
     }
     size_t lend = 0, at = 0;
     if (s[0] == '"') {
         /* quoted local: scan the closing quote, then exactly one @ */
-        if (!quoted_local(s, len, &lend)) return false;
+        if (!quoted_local(s, len, &lend, utf8)) return false;
         if (lend >= len || s[lend] != '@') return false;
         at = lend;
     } else {
@@ -292,9 +295,19 @@ static bool check_email(const char *s, size_t len)
         }
         if (nat != 1) return false;
         lend = at;
-        if (!dot_atom(s, at, true)) return false;
+        if (!dot_atom(s, at, true, utf8)) return false;
     }
-    return check_domain(s + at + 1, len - at - 1);
+    return check_domain(s + at + 1, len - at - 1, utf8);
+}
+
+static bool check_email(const char *s, size_t len)
+{
+    return check_email_generic(s, len, false);
+}
+
+static bool check_idn_email(const char *s, size_t len)
+{
+    return check_email_generic(s, len, true);
 }
 
 /* the crate's hostname/idn-hostname check (one body for both):
@@ -734,12 +747,11 @@ static bool check_duration(const char *s, size_t len) {
 
 /* ----------------------------------------------------- uri-template -- */
 
-/* the crate's template regex: literal characters (nothing in the
- * control/space range or "'<>%\^`{|}) or %XX pairs, plus {…}
- * expressions with an optional operator, comma-separated variable
- * names (word characters or %XX) and :N or * modifiers. Uppercase
- * hex and uppercase variable letters are accepted here (a superset
- * of the crate's lowercase-only spellings) */
+/* RFC 6570: literals are the unreserved set, %XX pairs, unicode and
+ * ":/?#[]@!$&'()*+,;="; expressions are '{' [op] varspec *(, varspec)
+ * '}' with op from "+#./;?&", varname = alnum/underscore/pct with
+ * single internal dots, and a ':' prefix (1-4 digits, no leading
+ * zero) or '*' modifier — but never both */
 static bool check_uri_template(const char *s, size_t len) {
     size_t i = 0;
     while (i < len) {
@@ -753,14 +765,13 @@ static bool check_uri_template(const char *s, size_t len) {
         }
         if (c == '{') {
             i++;
-            if (i < len && s[i] != '\0' &&
-                strchr("+./;?&=,!@|", s[i]) != NULL) {
+            if (i < len && strchr("+#./;?&", s[i]) != NULL) {
                 i++;
             }
-            bool varspec = false;
-            while (i < len && s[i] != '}') {
+            for (;;) {
                 /* one varspec: name (:N or *)? */
                 size_t name = 0;
+                bool dot = false;
                 while (i < len && s[i] != '}' && s[i] != ',' &&
                        s[i] != ':' && s[i] != '*') {
                     if (s[i] == '%') {
@@ -769,14 +780,19 @@ static bool check_uri_template(const char *s, size_t len) {
                             return false;
                         }
                         i += 3;
+                        dot = false;
                     } else if (is_ascii_alnum(s[i]) || s[i] == '_') {
                         i++;
+                        dot = false;
+                    } else if (s[i] == '.' && name > 0 && !dot) {
+                        i++;
+                        dot = true;
                     } else {
                         return false;
                     }
-                    name++;
+                    if (dot == false) name++;
                 }
-                if (name == 0) return false;
+                if (name == 0 || dot) return false;
                 if (i < len && s[i] == ':') {
                     i++;
                     size_t ds = i;
@@ -787,17 +803,18 @@ static bool check_uri_template(const char *s, size_t len) {
                 } else if (i < len && s[i] == '*') {
                     i++;
                 }
-                varspec = true;
                 if (i < len && s[i] == ',') {
                     i++;
+                    continue; /* the next varspec is mandatory */
                 }
+                break;
             }
-            if (i >= len || !varspec) return false;
+            if (i >= len || s[i] != '}') return false;
             i++; /* the closing brace */
             continue;
         }
         unsigned char b = (unsigned char)c;
-        if (b <= 0x20 || b == 0x7F || c == '"' || c == '\'' || c == '<' ||
+        if (b <= 0x20 || b == 0x7F || c == '"' || c == '<' ||
             c == '>' || c == '\\' || c == '^' || c == '`' || c == '|' ||
             c == '}') {
             return false;
@@ -1013,8 +1030,8 @@ bool sch_format_string_check(int format, const char *s, size_t len,
         }
         return pos == len;
     }
-    case FMT_EMAIL:
-    case FMT_IDN_EMAIL: return check_email(s, len);
+    case FMT_EMAIL: return check_email(s, len);
+    case FMT_IDN_EMAIL: return check_idn_email(s, len);
     case FMT_HOSTNAME:
     case FMT_IDN_HOSTNAME: return check_hostname(s, len);
     case FMT_IPV4: return check_ipv4(s, len);
