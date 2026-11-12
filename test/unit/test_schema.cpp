@@ -1210,8 +1210,54 @@ TEST(SchemaFormats, RegexAndDurationAndTemplate)
     EXPECT_FALSE(valid(s.sch, "d = 'P'\n"));
     EXPECT_TRUE(valid(s.sch, "t = 'http://example.com/{id}'\n"));
     EXPECT_TRUE(valid(s.sch, "t = '/users/{id}/tags{?q}'\n"));
+    /* the unified suite's RFC 6570 stance: '#' operator, internal
+     * varname dots and the apostrophe literal are legal; a trailing
+     * comma, empty expressions and :N+* mixes are not */
+    EXPECT_TRUE(valid(s.sch, "t = '{#var}'\n"));
+    EXPECT_TRUE(valid(s.sch, "t = '{a.b}'\n"));
+    EXPECT_TRUE(valid(s.sch, "t = '{x,y}'\n"));
+    EXPECT_TRUE(valid(s.sch, "t = \"a'b\"\n"));
     EXPECT_FALSE(valid(s.sch, "t = 'http://x/{no-closing'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = '{a,}'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = '{}'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = '{a,,b}'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = '{v:0}'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = '{v:10000}'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = '{v:01}'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = '{var:1*}'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = '{a..b}'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = '{a.}'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = 'foo}bar'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = 'a%'\n"));
+    EXPECT_FALSE(valid(s.sch, "t = 'a%GG'\n"));
     EXPECT_FALSE(valid(s.sch, "t = 'a b'\n")); /* a space is a bad literal */
+}
+
+TEST(SchemaFormats, EmailFlavors)
+{
+    SchemaDoc s;
+    s.sch = compile_ok(
+        {"{\"properties\":{\"e\":{\"format\":\"email\"},"
+         "\"i\":{\"format\":\"idn-email\"}}}"});
+    ASSERT_NE(s.sch, nullptr);
+    EXPECT_TRUE(valid(s.sch, "e = 'joe.bloggs@example.com'\n"));
+    EXPECT_FALSE(valid(s.sch, "e = '2962'\n"));
+    /* the idn flavor rides RFC 6531: unicode atext and unicode labels
+     * under the same LDH rules; the plain flavor stays ASCII-strict */
+    EXPECT_TRUE(valid(s.sch, "i = 'joe.bloggs@example.com'\n"));
+    EXPECT_TRUE(valid(s.sch, "i = 'δοκιμή@example.com'\n"));
+    EXPECT_TRUE(valid(s.sch, "i = '\"δοκιμή\"@example.com'\n"));
+    EXPECT_TRUE(valid(s.sch, "i = 'café@example.com'\n"));
+    EXPECT_TRUE(valid(s.sch, "i = 'user@café.com'\n"));
+    EXPECT_TRUE(valid(s.sch, "i = '실례@실례.테스트'\n"));
+    EXPECT_FALSE(valid(s.sch, "i = '2962'\n"));
+    EXPECT_FALSE(valid(s.sch, "i = 'user＠example.com'\n"));
+    EXPECT_FALSE(valid(s.sch, "i = 'δοκιμή@-example.com'\n"));
+    EXPECT_FALSE(valid(s.sch, "i = 'δοκιμή@example-.com'\n"));
+    EXPECT_FALSE(valid(s.sch, "i = 'δοκιμή@.example.com'\n"));
+    EXPECT_FALSE(valid(s.sch, "i = 'δοκιμή@example.com.'\n"));
+    EXPECT_FALSE(valid(s.sch, "i = 'δοκιμή@example..com'\n"));
+    EXPECT_FALSE(valid(s.sch, "i = 'δοκιμή@'\n"));
 }
 
 TEST(SchemaFormats, SemverFamily)
