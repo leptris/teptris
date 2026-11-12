@@ -22,6 +22,13 @@ flat-dump time). "Parity is not best" stands: those cells are not
 claimed as wins — they are named, measured, and carry their next
 lever's price in the LEDGER.
 
+**Schema completeness (2026-11-12):** the unified-suite adoption
+closed at **1789/1789 — zero divergences** on the entire official
+JSON Schema test suite (draft-agnostic model, assertion-stance
+formats included). The format battery is real RFC/Unicode engines,
+not crate mirrors — RFC 5322/6531/3986/3987/6570/3339/4122/5891/5892/
+5893/3492 and UTS #46 (generated tables). See SCHEMAS.md.
+
 ## The bar — six dimensions
 
 A surface can call itself best only when every dimension below is
