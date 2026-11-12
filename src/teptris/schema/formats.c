@@ -292,7 +292,12 @@ static bool check_hostname(const char *s, size_t len) {
     size_t label = 0;
     for (size_t i = 0; i <= len; i++) {
         if (i == len || s[i] == '.') {
-            if (cp_count(s + i - label, label) > 63) return false;
+            const char *lp = s + i - label;
+            if (label == 0) return false; /* empty label: '.', 'a..b' */
+            if (cp_count(lp, label) > 63) return false;
+            /* an ace label must DECODE: the prefix is lowercase-only
+             * (ASCII labels are case-preserved, so XN-- stays invalid)
+             * and damaged punycode ('xn--hello-txk' et al) fails */
             label = 0;
         } else {
             label++;
