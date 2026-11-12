@@ -9,6 +9,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "idna_tables.h"
+
 #include "schema_internal.h"
 
 static bool is_digit(char c) { return c >= '0' && c <= '9'; }
@@ -308,35 +310,6 @@ static bool check_email(const char *s, size_t len)
 static bool check_idn_email(const char *s, size_t len)
 {
     return check_email_generic(s, len, true);
-}
-
-/* the crate's hostname/idn-hostname check (one body for both):
- * nonempty, at most 255 characters, only alphanumerics, '-' and '.',
- * no leading/trailing '-', labels of at most 63 characters. The
- * crate's alphanumeric test is Unicode-wide; the practical subset
- * here is ASCII (flagged as a divergence in SCHEMAS.md) */
-static bool check_hostname(const char *s, size_t len) {
-    if (len == 0 || s[0] == '-' || s[len - 1] == '-') return false;
-    if (cp_count(s, len) > 255) return false;
-    for (size_t i = 0; i < len; i++) {
-        char c = s[i];
-        if (!(is_ascii_alnum(c) || c == '-' || c == '.')) return false;
-    }
-    size_t label = 0;
-    for (size_t i = 0; i <= len; i++) {
-        if (i == len || s[i] == '.') {
-            const char *lp = s + i - label;
-            if (label == 0) return false; /* empty label: '.', 'a..b' */
-            if (cp_count(lp, label) > 63) return false;
-            /* an ace label must DECODE: the prefix is lowercase-only
-             * (ASCII labels are case-preserved, so XN-- stays invalid)
-             * and damaged punycode ('xn--hello-txk' et al) fails */
-            label = 0;
-        } else {
-            label++;
-        }
-    }
-    return true;
 }
 
 /* dotted quad, each group 1-3 digits without a leading zero (unless
@@ -974,6 +947,662 @@ static bool check_semver_req(const char *s, size_t len) {
     return any;
 }
 
+/* ---------------------------------------------------------- idna -- */
+
+/* utf-8: decode one code point (strict: overlongs, surrogates and
+ * out-of-range rejected); i advances past the sequence */
+static bool idna_utf8_next(const char *s, size_t len, size_t *i,
+                           unsigned *cp) {
+    unsigned char b = (unsigned char)s[*i];
+    size_t adv;
+    unsigned v;
+    if (b < 0x80) {
+        adv = 1;
+        v = b;
+    } else if ((b & 0xE0) == 0xC0) {
+        adv = 2;
+        v = b & 0x1F;
+    } else if ((b & 0xF0) == 0xE0) {
+        adv = 3;
+        v = b & 0x0F;
+    } else if ((b & 0xF8) == 0xF0) {
+        adv = 4;
+        v = b & 0x07;
+    } else {
+        return false;
+    }
+    if (*i + adv > len) return false;
+    for (size_t k = 1; k < adv; k++) {
+        unsigned char c = (unsigned char)s[*i + k];
+        if ((c & 0xC0) != 0x80) return false;
+        v = (v << 6) | (c & 0x3F);
+    }
+    static const unsigned lo[4] = {0, 0x80, 0x800, 0x10000};
+    if (v < lo[adv - 1] || v > 0x10FFFF ||
+        (v >= 0xD800 && v <= 0xDFFF)) {
+        return false;
+    }
+    *cp = v;
+    *i += adv;
+    return true;
+}
+
+static size_t idna_utf8_put(char *out, unsigned v) {
+    if (v < 0x80) {
+        out[0] = (char)v;
+        return 1;
+    }
+    if (v < 0x800) {
+        out[0] = (char)(0xC0 | (v >> 6));
+        out[1] = (char)(0x80 | (v & 0x3F));
+        return 2;
+    }
+    if (v < 0x10000) {
+        out[0] = (char)(0xE0 | (v >> 12));
+        out[1] = (char)(0x80 | ((v >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (v & 0x3F));
+        return 3;
+    }
+    out[0] = (char)(0xF0 | (v >> 18));
+    out[1] = (char)(0x80 | ((v >> 12) & 0x3F));
+    out[2] = (char)(0x80 | ((v >> 6) & 0x3F));
+    out[3] = (char)(0x80 | (v & 0x3F));
+    return 4;
+}
+
+static size_t idna_utf8_len(unsigned v) {
+    return v < 0x80 ? 1 : v < 0x800 ? 2 : v < 0x10000 ? 3 : 4;
+}
+
+/* range-table lookups (the tables are sorted by `first`) */
+static const idna_map_row *idna_map_of(unsigned v) {
+    size_t lo = 0, hi = idna_map_len;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (idna_map[mid].last < v) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    if (lo < idna_map_len && idna_map[lo].first <= v) return &idna_map[lo];
+    return NULL;
+}
+
+static unsigned char idna_range_of(const idna_range_row *t, size_t n,
+                                   unsigned v) {
+    size_t lo = 0, hi = n;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (t[mid].last < v) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    if (lo < n && t[lo].first <= v) return t[lo].v;
+    return 0;
+}
+
+#define idna_bidi_of(v) idna_range_of(idna_bidi, idna_bidi_len, (v))
+#define idna_join_of(v) idna_range_of(idna_join, idna_join_len, (v))
+#define idna_script_of(v) idna_range_of(idna_script, idna_script_len, (v))
+#define idna_ccc_of(v) ((int)idna_range_of(idna_ccc, idna_ccc_len, (v)))
+
+static bool idna_is_virama(unsigned v) {
+    for (size_t i = 0; i < idna_virama_len; i++) {
+        if (idna_virama[i] == v) return true;
+    }
+    return false;
+}
+
+/* gc=M (UTS-46 validity criterion 6: no leading combining mark) */
+static bool idna_is_mark(unsigned v) {
+    size_t lo = 0, hi = idna_mark_len;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (idna_mark[mid].last < v) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    return lo < idna_mark_len && idna_mark[lo].first <= v;
+}
+
+static const idna_decomp_row *idna_decomp_of(unsigned v) {
+    size_t lo = 0, hi = idna_decomp_len;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if (idna_decomp[mid].cp < v) {
+            lo = mid + 1;
+        } else {
+            hi = mid;
+        }
+    }
+    if (lo < idna_decomp_len && idna_decomp[lo].cp == v)
+        return &idna_decomp[lo];
+    return NULL;
+}
+
+static unsigned idna_comp_of(unsigned a, unsigned b) {
+    for (size_t i = 0; i < idna_comp_len; i++) {
+        if (idna_comp[i].a == a && idna_comp[i].b == b) return idna_comp[i].cp;
+    }
+    return 0;
+}
+
+/* hangul constants (the algorithmic decompositions/compositions) */
+#define IDNA_SBASE 0xAC00
+#define IDNA_LBASE 0x1100
+#define IDNA_VBASE 0x1161
+#define IDNA_TBASE 0x11A7
+#define IDNA_LCOUNT 19
+#define IDNA_VCOUNT 21
+#define IDNA_TCOUNT 28
+#define IDNA_NCOUNT (IDNA_VCOUNT * IDNA_TCOUNT)
+#define IDNA_SCOUNT (IDNA_LCOUNT * IDNA_NCOUNT)
+
+/* NFC (canonical decomposition, ordering, composition); in place,
+ * answers the new length, or 0 when the scratch runs out */
+static size_t idna_nfc(unsigned *cp, size_t n, size_t cap) {
+    unsigned tmp[2048];
+    size_t m = 0;
+    for (size_t i = 0; i < n; i++) {
+        unsigned v = cp[i];
+        if (v >= IDNA_SBASE && v < IDNA_SBASE + IDNA_SCOUNT) {
+            unsigned sidx = v - IDNA_SBASE;
+            tmp[m++] = IDNA_LBASE + sidx / IDNA_NCOUNT;
+            tmp[m++] = IDNA_VBASE + (sidx % IDNA_NCOUNT) / IDNA_TCOUNT;
+            unsigned t = sidx % IDNA_TCOUNT;
+            if (t != 0) tmp[m++] = IDNA_TBASE + t;
+        } else {
+            const idna_decomp_row *d = idna_decomp_of(v);
+            if (d != NULL) {
+                for (unsigned k = 0; k < d->len; k++) {
+                    if (m >= cap || m >= sizeof tmp / sizeof tmp[0]) return 0;
+                    tmp[m++] = idna_seq_pool[d->off + k];
+                }
+            } else {
+                if (m >= cap || m >= sizeof tmp / sizeof tmp[0]) return 0;
+                tmp[m++] = v;
+            }
+        }
+    }
+    /* canonical order: stable bubble on combining class */
+    for (;;) {
+        bool moved = false;
+        for (size_t i = 1; i < m; i++) {
+            int a = idna_ccc_of(tmp[i - 1]);
+            int b = idna_ccc_of(tmp[i]);
+            if (a > b && b != 0) {
+                unsigned t = tmp[i - 1];
+                tmp[i - 1] = tmp[i];
+                tmp[i] = t;
+                moved = true;
+            }
+        }
+        if (!moved) break;
+    }
+    /* compose: blocked iff a char between starter and current has a
+     * combining class >= the current's; a successful merge removes
+     * the blocker, so the last class stays at the starter's 0 */
+    size_t out = 0;
+    size_t starter = (size_t)-1;
+    unsigned last_cc = 0;
+    for (size_t i = 0; i < m; i++) {
+        unsigned v = tmp[i];
+        unsigned cc = (unsigned)idna_ccc_of(v);
+        bool merged = false;
+        if (starter != (size_t)-1 && (last_cc == 0 || last_cc < cc)) {
+            unsigned comp = idna_comp_of(tmp[starter], v);
+            if (comp == 0 &&
+                tmp[starter] >= IDNA_LBASE &&
+                tmp[starter] < IDNA_LBASE + IDNA_LCOUNT &&
+                v >= IDNA_VBASE && v < IDNA_VBASE + IDNA_VCOUNT) {
+                comp = IDNA_SBASE +
+                       (tmp[starter] - IDNA_LBASE) * IDNA_NCOUNT +
+                       (v - IDNA_VBASE) * IDNA_TCOUNT;
+            } else if (comp == 0 &&
+                       tmp[starter] >= IDNA_SBASE &&
+                       tmp[starter] < IDNA_SBASE + IDNA_SCOUNT &&
+                       (tmp[starter] - IDNA_SBASE) % IDNA_TCOUNT == 0 &&
+                       v >= IDNA_TBASE && v < IDNA_TBASE + IDNA_TCOUNT) {
+                comp = tmp[starter] + (v - IDNA_TBASE);
+            }
+            if (comp != 0) {
+                tmp[starter] = comp;
+                merged = true;
+            }
+        }
+        if (merged) continue;
+        if (cc == 0) {
+            starter = out;
+            last_cc = 0;
+        } else {
+            last_cc = cc;
+        }
+        tmp[out++] = v;
+    }
+    for (size_t i = 0; i < out; i++) cp[i] = tmp[i];
+    return out;
+}
+
+/* UTS #46 map (nontransitional): answers the code point count, or
+ * SIZE_MAX on a disallowed character or malformed utf-8 */
+#define IDNA_CPS_CAP 1100
+static size_t idna_ut46_map(const char *s, size_t len, unsigned *out) {
+    size_t i = 0, n = 0;
+    while (i < len) {
+        unsigned v;
+        if (!idna_utf8_next(s, len, &i, &v)) return SIZE_MAX;
+        const idna_map_row *r = idna_map_of(v);
+        if (r == NULL || r->st == IDNA_DISALLOWED) return SIZE_MAX;
+        if (r->st == IDNA_IGNORED) continue;
+        if (r->st == IDNA_MAPPED) {
+            size_t k = 0;
+            while (k < r->len) {
+                unsigned mv;
+                if (!idna_utf8_next((const char *)(idna_map_pool + r->off),
+                                    r->len, &k, &mv)) {
+                    return SIZE_MAX;
+                }
+                if (n >= IDNA_CPS_CAP) return SIZE_MAX;
+                out[n++] = mv;
+            }
+            continue;
+        }
+        if (n >= IDNA_CPS_CAP) return SIZE_MAX;
+        out[n++] = v;
+    }
+    return n;
+}
+
+/* punycode (RFC 3492 appendix C, the ANSI C reference adapted to the
+ * engine's size_t/bool; the case-flag array is dropped — the
+ * canonical re-encode form is lowercase) */
+enum { PC_BASE = 36, PC_TMIN = 1, PC_TMAX = 26, PC_SKEW = 38,
+       PC_DAMP = 700, PC_INITIAL_BIAS = 72, PC_INITIAL_N = 0x80 };
+
+static unsigned pc_decode_digit(char c) {
+    unsigned u = (unsigned char)c;
+    return u - 48 < 10 ? u - 22 : u - 65 < 26 ? u - 65 :
+           u - 97 < 26 ? u - 97 : PC_BASE;
+}
+
+static char pc_encode_digit(unsigned d) {
+    return (char)(d + 22 + 75 * (d < 26));
+}
+
+static unsigned pc_adapt(unsigned delta, unsigned numpoints,
+                         bool firsttime) {
+    unsigned k;
+    delta = firsttime ? delta / PC_DAMP : delta >> 1;
+    delta += delta / numpoints;
+    for (k = 0; delta > ((PC_BASE - PC_TMIN) * PC_TMAX) / 2; k += PC_BASE) {
+        delta /= PC_BASE - PC_TMIN;
+    }
+    return k + (PC_BASE - PC_TMIN + 1) * delta / (delta + PC_SKEW);
+}
+
+static int pc_encode(const unsigned *input, size_t input_length,
+                     char *output, size_t *output_length) {
+    size_t n, delta, h, b, out, max_out, bias, j, m, q, k, t;
+    n = PC_INITIAL_N;
+    delta = out = 0;
+    max_out = *output_length;
+    bias = PC_INITIAL_BIAS;
+    for (j = 0; j < input_length; ++j) {
+        if (input[j] < 0x80) {
+            if (max_out - out < 2) return -2;
+            output[out++] = (char)input[j];
+        }
+    }
+    h = b = out;
+    if (b > 0) output[out++] = '-';
+    while (h < input_length) {
+        for (m = SIZE_MAX, j = 0; j < input_length; ++j) {
+            if (input[j] >= n && input[j] < m) m = input[j];
+        }
+        if (m - n > (SIZE_MAX - delta) / (h + 1)) return -3;
+        delta += (m - n) * (h + 1);
+        n = m;
+        for (j = 0; j < input_length; ++j) {
+            if (input[j] < n) {
+                if (++delta == 0) return -3;
+            }
+            if (input[j] == n) {
+                for (q = delta, k = PC_BASE;; k += PC_BASE) {
+                    if (out >= max_out) return -2;
+                    t = k <= bias ? PC_TMIN :
+                        k >= bias + PC_TMAX ? PC_TMAX : k - bias;
+                    if (q < t) break;
+                    output[out++] =
+                        pc_encode_digit(t + (q - t) % (PC_BASE - t));
+                    q = (q - t) / (PC_BASE - t);
+                }
+                output[out++] = pc_encode_digit(q);
+                bias = pc_adapt((unsigned)delta, (unsigned)(h + 1), h == b);
+                delta = 0;
+                ++h;
+            }
+        }
+        ++delta, ++n;
+    }
+    *output_length = out;
+    return 0;
+}
+
+static int pc_decode(const char *input, size_t input_length,
+                     unsigned *output, size_t *output_length) {
+    unsigned n, bias, digit, t;
+    size_t out = 0, i = 0, max_out = *output_length, b, j, in, oldi, w, k;
+    n = PC_INITIAL_N;
+    bias = PC_INITIAL_BIAS;
+    for (b = j = 0; j < input_length; ++j) {
+        if ((unsigned char)input[j] == '-') b = j;
+    }
+    if (b > max_out) return -2;
+    for (j = 0; j < b; ++j) {
+        if ((unsigned char)input[j] >= 0x80) return -1;
+        output[out++] = (unsigned char)input[j];
+    }
+    for (in = b > 0 ? b + 1 : 0; in < input_length; ++out) {
+        for (oldi = i, w = 1, k = PC_BASE;; k += PC_BASE) {
+            if (in >= input_length) return -1;
+            digit = pc_decode_digit(input[in++]);
+            if (digit >= PC_BASE) return -1;
+            if (digit > (SIZE_MAX - i) / w) return -3;
+            i += digit * w;
+            t = k <= bias ? PC_TMIN :
+                k >= bias + PC_TMAX ? PC_TMAX : k - bias;
+            if (digit < t) break;
+            if (w > SIZE_MAX / (PC_BASE - t)) return -3;
+            w *= (PC_BASE - t);
+        }
+        bias = pc_adapt((unsigned)(i - oldi), (unsigned)(out + 1),
+                        oldi == 0);
+        if (i / (out + 1) > SIZE_MAX - n) return -3;
+        n += (unsigned)(i / (out + 1));
+        i %= (out + 1);
+        if (out >= max_out) return -2;
+        if (n > 0x10FFFF || (n >= 0xD800 && n <= 0xDFFF)) return -1;
+        memmove(output + i + 1, output + i, (out - i) * sizeof *output);
+        output[i++] = n;
+    }
+    *output_length = out;
+    return 0;
+}
+
+/* RFC 5892 appendix A: the nine context rules, evaluated on a label */
+static bool idna_context_ok(const unsigned *cp, size_t n) {
+    bool an_arabic = false, an_ext = false, kana_ctx = false;
+    for (size_t i = 0; i < n; i++) {
+        if (cp[i] >= 0x0660 && cp[i] <= 0x0669) an_arabic = true;
+        if (cp[i] >= 0x06F0 && cp[i] <= 0x06F9) an_ext = true;
+        unsigned char sc = idna_script_of(cp[i]);
+        if (sc == SC_HIRAGANA || sc == SC_KATAKANA || sc == SC_HAN) {
+            kana_ctx = true;
+        }
+    }
+    if (an_arabic && an_ext) return false; /* A.8 / A.9 */
+    for (size_t i = 0; i < n; i++) {
+        unsigned v = cp[i];
+        unsigned before = i > 0 ? cp[i - 1] : 0;
+        unsigned after = i + 1 < n ? cp[i + 1] : 0;
+        switch (v) {
+        case 0x200C: {
+            /* A.1: virama, or the joining-type regexp */
+            if (i > 0 && idna_is_virama(before)) break;
+            size_t k = i;
+            while (k > 0 && idna_join_of(cp[k - 1]) == J_T) k--;
+            if (k == 0) return false;
+            unsigned char jl = idna_join_of(cp[k - 1]);
+            if (jl != J_L && jl != J_D) return false;
+            k = i + 1;
+            while (k < n && idna_join_of(cp[k]) == J_T) k++;
+            if (k >= n) return false;
+            unsigned char jr = idna_join_of(cp[k]);
+            if (jr != J_R && jr != J_D) return false;
+            break;
+        }
+        case 0x200D: /* A.2 */
+            if (i == 0 || !idna_is_virama(before)) return false;
+            break;
+        case 0x00B7: /* A.3 */
+            if (before != 'l' || after != 'l') return false;
+            break;
+        case 0x0375: /* A.4 */
+            if (i + 1 >= n || idna_script_of(after) != SC_GREEK)
+                return false;
+            break;
+        case 0x05F3: /* A.5 / A.6 */
+        case 0x05F4:
+            if (i == 0 || idna_script_of(before) != SC_HEBREW) return false;
+            break;
+        case 0x30FB: /* A.7 */
+            if (!kana_ctx) return false;
+            break;
+        default:
+            break;
+        }
+    }
+    return true;
+}
+
+/* RFC 5893: the six bidi rules; applies to every label of a bidi
+ * domain (labels outside bidi domains ride free) */
+static bool idna_bidi_ok(const unsigned *cp, size_t n, bool in_bidi_domain) {
+    unsigned char cls[256];
+    bool rtl = false;
+    if (n == 0 || n > sizeof cls) return false;
+    for (size_t i = 0; i < n; i++) {
+        cls[i] = idna_bidi_of(cp[i]);
+        if (cls[i] == B_R || cls[i] == B_AL || cls[i] == B_AN) rtl = true;
+    }
+    if (!rtl) {
+        if (!in_bidi_domain) return true;
+        /* an LTR label: rule 1 (first char L), rule 5, rule 6 */
+        if (cls[0] != B_L) return false;
+        for (size_t i = 0; i < n; i++) {
+            switch (cls[i]) {
+            case B_L: case B_EN: case B_ES: case B_CS: case B_ET:
+            case B_ON: case B_BN: case B_NSM:
+                break;
+            default:
+                return false;
+            }
+        }
+        size_t e = n;
+        while (e > 0 && cls[e - 1] == B_NSM) e--;
+        if (e == 0 || (cls[e - 1] != B_L && cls[e - 1] != B_EN))
+            return false;
+        return true;
+    }
+    /* an RTL label: rules 1-4 */
+    if (cls[0] != B_R && cls[0] != B_AL) return false;
+    bool has_en = false, has_an = false;
+    for (size_t i = 0; i < n; i++) {
+        switch (cls[i]) {
+        case B_R: case B_AL: case B_AN: case B_EN: case B_ES:
+        case B_CS: case B_ET: case B_ON: case B_BN: case B_NSM:
+            break;
+        default:
+            return false;
+        }
+        if (cls[i] == B_EN) has_en = true;
+        if (cls[i] == B_AN) has_an = true;
+    }
+    if (has_en && has_an) return false;
+    size_t e = n;
+    while (e > 0 && cls[e - 1] == B_NSM) e--;
+    if (e == 0) return false;
+    if (cls[e - 1] != B_R && cls[e - 1] != B_AL && cls[e - 1] != B_EN &&
+        cls[e - 1] != B_AN) {
+        return false;
+    }
+    return true;
+}
+
+static bool idna_label_chars_ok(const unsigned *cp, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        const idna_map_row *r = idna_map_of(cp[i]);
+        if (r == NULL || r->st != IDNA_VALID) return false;
+    }
+    return true;
+}
+
+/* decode an A-label body (past xn--) and gate the U-label: chars,
+ * context rules, the 3rd/4th '--' reservation, and the canonical
+ * re-encode; answers the decoded code points for the bidi pass */
+static bool idna_alabel_decode(const char *body, size_t blen,
+                               unsigned *dec, size_t *dn) {
+    size_t cap = 128;
+    *dn = cap;
+    if (pc_decode(body, blen, dec, dn) != 0) return false;
+    if (*dn == 0) return false;
+    bool nonascii = false;
+    for (size_t i = 0; i < *dn; i++) {
+        if (dec[i] >= 0x80) nonascii = true;
+    }
+    if (!nonascii) return false; /* an A-label decodes to a U-label */
+    if (idna_is_mark(dec[0])) return false; /* criterion 6 */
+    if (*dn >= 4 && dec[2] == '-' && dec[3] == '-') return false;
+    char ub[256];
+    size_t un = 0;
+    for (size_t i = 0; i < *dn; i++) un += idna_utf8_put(ub + un, dec[i]);
+    if (un > 63) return false;
+    if (!idna_label_chars_ok(dec, *dn)) return false;
+    if (!idna_context_ok(dec, *dn)) return false;
+    char enc[128];
+    size_t en = sizeof enc;
+    if (pc_encode(dec, *dn, enc, &en) != 0) return false;
+    if (en != blen) return false;
+    for (size_t i = 0; i < blen; i++) {
+        char c = body[i];
+        if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
+        if (c != enc[i]) return false;
+    }
+    return true;
+}
+
+/* a direct (non-ACE) label: chars, context, and the wire-form length;
+ * hyphen edges and the '--' reservation ride RFC 5891 4.2.3.1 */
+static bool idna_ulabel_ok(const unsigned *cp, size_t n) {
+    if (n == 0 || n > 63) return false;
+    if (idna_is_mark(cp[0])) return false;
+    if (cp[0] == '-' || cp[n - 1] == '-') return false;
+    if (n >= 4 && cp[2] == '-' && cp[3] == '-') return false;
+    if (!idna_label_chars_ok(cp, n)) return false;
+    if (!idna_context_ok(cp, n)) return false;
+    bool ascii = true;
+    for (size_t i = 0; i < n; i++) {
+        if (cp[i] >= 0x80) {
+            ascii = false;
+            break;
+        }
+    }
+    if (ascii) return true; /* stays ASCII; the octet cap is the cps cap */
+    char enc[128];
+    size_t en = sizeof enc;
+    if (pc_encode(cp, n, enc, &en) != 0) return false;
+    if (en + 4 > 63) return false; /* xn-- plus the body must fit */
+    return true;
+}
+
+static bool check_hostname(const char *s, size_t len) {
+    if (len == 0 || s[0] == '-' || s[len - 1] == '-') return false;
+    if (cp_count(s, len) > 255) return false;
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        if (!(is_ascii_alnum(c) || c == '-' || c == '.')) return false;
+    }
+    size_t label = 0;
+    for (size_t i = 0; i <= len; i++) {
+        if (i == len || s[i] == '.') {
+            const char *lp = s + i - label;
+            if (label == 0) return false; /* empty label: '.', 'a..b' */
+            if (cp_count(lp, label) > 63) return false;
+            /* an ACE label (any-case prefix, RFC 5890 lookup) must
+             * decode to a valid, canonical U-label */
+            if (label >= 4 && (lp[0] | 32) == 'x' && (lp[1] | 32) == 'n' &&
+                (lp[2] | 32) == '-' && (lp[3] | 32) == '-') {
+                unsigned dec[128];
+                size_t dn;
+                if (!idna_alabel_decode(lp + 4, label - 4, dec, &dn))
+                    return false;
+            }
+            label = 0;
+        } else {
+            label++;
+        }
+    }
+    return true;
+}
+
+#define IDNA_DOM_CAP 1100
+static bool check_idn_hostname(const char *s, size_t len) {
+    if (len == 0 || len > 253) return false;
+    unsigned cps[IDNA_DOM_CAP];
+    size_t n = idna_ut46_map(s, len, cps);
+    if (n == SIZE_MAX) return false;
+    size_t octets = 0;
+    for (size_t i = 0; i < n; i++) octets += idna_utf8_len(cps[i]);
+    if (octets > 253) return false;
+    n = idna_nfc(cps, n, IDNA_DOM_CAP);
+    if (n == 0) return false;
+    /* bidi domains gate every label; the RTL-ness rides the U-label
+     * form (a decoded ACE label counts) */
+    bool bidi_domain = false;
+    size_t ls = 0;
+    for (size_t i = 0; i <= n; i++) {
+        if (i != n && cps[i] != '.') continue;
+        size_t ln = i - ls;
+        const unsigned *lp = cps + ls;
+        if (ln == 0) return false;
+        if (ln >= 4 && lp[0] == 'x' && lp[1] == 'n' && lp[2] == '-' &&
+            lp[3] == '-') {
+            unsigned dec[128];
+            size_t dn;
+            char body[128];
+            size_t bn = 0;
+            for (size_t k = 4; k < ln; k++) {
+                if (lp[k] >= 0x80 || bn >= sizeof body) return false;
+                body[bn++] = (char)lp[k];
+            }
+            if (!idna_alabel_decode(body, bn, dec, &dn)) return false;
+            if (idna_bidi_ok(dec, dn, true)) bidi_domain = true;
+        } else if (idna_bidi_ok(lp, ln, true)) {
+            bidi_domain = true;
+        }
+        ls = i + 1;
+    }
+    ls = 0;
+    for (size_t i = 0; i <= n; i++) {
+        if (i != n && cps[i] != '.') continue;
+        size_t ln = i - ls;
+        const unsigned *lp = cps + ls;
+        if (ln >= 4 && lp[0] == 'x' && lp[1] == 'n' && lp[2] == '-' &&
+            lp[3] == '-') {
+            unsigned dec[128];
+            size_t dn;
+            char body[128];
+            size_t bn = 0;
+            for (size_t k = 4; k < ln; k++) {
+                if (lp[k] >= 0x80 || bn >= sizeof body) return false;
+                body[bn++] = (char)lp[k];
+            }
+            if (!idna_alabel_decode(body, bn, dec, &dn)) return false;
+            if (!idna_bidi_ok(dec, dn, bidi_domain)) return false;
+        } else {
+            if (!idna_ulabel_ok(lp, ln)) return false;
+            if (!idna_bidi_ok(lp, ln, bidi_domain)) return false;
+        }
+        ls = i + 1;
+    }
+    return true;
+}
+
 /* ----------------------------------------------------------- entry -- */
 
 bool sch_format_string_check(int format, const char *s, size_t len,
@@ -1032,8 +1661,8 @@ bool sch_format_string_check(int format, const char *s, size_t len,
     }
     case FMT_EMAIL: return check_email(s, len);
     case FMT_IDN_EMAIL: return check_idn_email(s, len);
-    case FMT_HOSTNAME:
-    case FMT_IDN_HOSTNAME: return check_hostname(s, len);
+    case FMT_HOSTNAME: return check_hostname(s, len);
+    case FMT_IDN_HOSTNAME: return check_idn_hostname(s, len);
     case FMT_IPV4: return check_ipv4(s, len);
     case FMT_IPV6: return check_ipv6(s, len);
     case FMT_URI: return check_uri(s, len);
