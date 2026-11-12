@@ -1170,11 +1170,15 @@ TEST(SchemaFormats, PointersAndUuidAndUri)
     EXPECT_TRUE(valid(s.sch, "p = '/a/b~1c~0d'\n"));
     EXPECT_FALSE(valid(s.sch, "p = 'a/b'\n"));
     EXPECT_FALSE(valid(s.sch, "p = '/a~2'\n"));
-    EXPECT_TRUE(valid(s.sch, "r = '0'\n") == false); /* needs # or tail */
+    EXPECT_TRUE(valid(s.sch, "r = '0'\n")); /* the bare integer IS a
+        valid relative pointer (the unified suite's stance; the old
+        pin demanded a # or tail) */
     EXPECT_TRUE(valid(s.sch, "r = '0#'\n"));
     EXPECT_TRUE(valid(s.sch, "r = '1/a/b'\n"));
     EXPECT_TRUE(valid(s.sch, "u = '123e4567-e89b-12d3-a456-426614174000'\n"));
-    EXPECT_TRUE(valid(s.sch, "u = '123e4567e89b12d3a456426614174000'\n"));
+    /* the unified suite's uuid stance: exactly 8-4-4-4-12; the
+     * undashed 32-hex form is not a uuid-literal (was crate-parity) */
+    EXPECT_FALSE(valid(s.sch, "u = '123e4567e89b12d3a456426614174000'\n"));
     EXPECT_FALSE(valid(s.sch, "u = '123e4567-e89b-12d3-a456'\n"));
     EXPECT_TRUE(valid(s.sch, "w = 'https://example.com/x?y=1'\n"));
     EXPECT_TRUE(valid(s.sch, "w = 'mailto:a@b.c'\n"));

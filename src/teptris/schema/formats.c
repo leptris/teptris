@@ -81,7 +81,11 @@ static bool check_date(const char *s, size_t len) {
 }
 
 /* HH:MM:SS with ranges; answers the consumed length (8) or 0 */
-static size_t check_hms(const char *s, size_t len) {
+static size_t check_hms(const char *s, size_t len, bool allow_leap,
+                        int *hour_out, int *minute_out, int *sec_out) {
+    /* allow_leap: the date-time format's leap second (:60 at the UTC
+     * day end — the caller validates the moment); the time format
+     * and the local shapes cap at 59 */
     if (len < 8 || s[2] != ':' || s[5] != ':') return 0;
     if (!all_digits(s, 0, 2) || !all_digits(s, 3, 2) ||
         !all_digits(s, 6, 2)) {
@@ -90,7 +94,11 @@ static size_t check_hms(const char *s, size_t len) {
     int h = two_digits(s, 0);
     int m = two_digits(s, 3);
     int sec = two_digits(s, 6);
-    if (h > 23 || m > 59 || sec > 59) return 0;
+    if (h > 23 || m > 59) return 0;
+    if (sec > 59 && !(allow_leap && sec == 60)) return 0;
+    if (hour_out) *hour_out = h;
+    if (minute_out) *minute_out = m;
+    if (sec_out) *sec_out = sec;
     return 8;
 }
 
@@ -112,7 +120,8 @@ static bool check_datetime(const char *s, size_t len) {
     if (len < 20) return false;
     if (!check_date(s, 10)) return false;
     if (s[10] != 'T' && s[10] != 't') return false;
-    size_t used = check_hms(s + 11, len - 11);
+    int h = 0, minute = 0, sec = 0;
+    size_t used = check_hms(s + 11, len - 11, true, &h, &minute, &sec);
     if (used == 0) return false;
     size_t pos = 11 + used;
     if (pos < len && s[pos] == '.') {
@@ -123,6 +132,22 @@ static bool check_datetime(const char *s, size_t len) {
             frac++;
         }
         if (frac == 0) return false;
+    }
+    if (pos >= len) return false;
+    /* a leap second exists only at the UTC day end: the local clock
+     * must read :59:60 and land at second 86400 after the offset */
+    if (sec == 60) {
+        if (s[pos] == 'Z' || s[pos] == 'z') {
+            if (h * 3600 + minute * 60 + 60 != 86400) return false;
+        } else {
+            if (pos + 6 > len) return false;
+            bool neg = s[pos] == '-';
+            int oh = two_digits(s + pos, 1);
+            int om = two_digits(s + pos, 4);
+            /* (both read s[from], s[from+1] — signature is (s, from)) */
+            int off = (neg ? -1 : 1) * (oh * 3600 + om * 60);
+            if (h * 3600 + minute * 60 + 60 - off != 86400) return false;
+        }
     }
     return len > pos && check_offset(s + pos, len - pos) == len - pos;
 }
@@ -338,6 +363,13 @@ static bool group_ok(const char *t, size_t n) {
 }
 
 static bool check_ipv6(const char *s, size_t len) {
+    /* '::' compresses once: a colon run longer than 2 (':::') is
+     * invalid outright ('1:2:3:4:5:::8') */
+    size_t run = 0;
+    for (size_t i = 0; i < len; i++) {
+        run = s[i] == ':' ? run + 1 : 0;
+        if (run > 2) return false;
+    }
     const char *tok[9];
     size_t tl[9];
     size_t n = 0, start = 0;
@@ -443,17 +475,21 @@ static bool check_json_pointer(const char *s, size_t len) {
 /* relative-json-pointer: non-negative base-10 index without a
  * leading zero, then "#" or a '/'-led pointer tail */
 static bool check_relative_json_pointer(const char *s, size_t len) {
+    /* RFC 6901: the prefix is "0" or a non-zero-leading integer, and
+     * the bare integer IS a valid pointer (the # / json-pointer part
+     * is optional) */
     size_t i = 0;
     if (len == 0) return false;
     if (s[0] == '0') {
         i = 1;
+        if (i < len && is_digit(s[i])) return false; /* 01, 012... */
     } else if (s[0] >= '1' && s[0] <= '9') {
         i = 1;
         while (i < len && is_digit(s[i])) i++;
     } else {
         return false;
     }
-    if (i == len) return false;
+    if (i == len) return true; /* the bare integer alone */
     if (s[i] == '#') return i + 1 == len;
     if (s[i] != '/') return false;
     return check_json_pointer(s + i, len - i);
@@ -462,17 +498,16 @@ static bool check_relative_json_pointer(const char *s, size_t len) {
 /* uuid: the crate's FromStr accepts the simple (32 hex) and
  * hyphenated (8-4-4-4-12) spellings, case-insensitive */
 static bool check_uuid(const char *s, size_t len) {
-    if (len != 32 && len != 36) return false;
-    size_t hex_seen = 0;
+    /* RFC 4122 abnf: exactly 8-4-4-4-12; the 32-char undashed form
+     * is not a uuid-literal (the unified suite's stance) */
+    if (len != 36) return false;
+    if (s[8] != '-' || s[13] != '-' || s[18] != '-' || s[23] != '-')
+        return false;
     for (size_t i = 0; i < len; i++) {
-        if (len == 36 && (i == 8 || i == 13 || i == 18 || i == 23)) {
-            if (s[i] != '-') return false;
-            continue;
-        }
+        if (i == 8 || i == 13 || i == 18 || i == 23) continue;
         if (!is_hex(s[i])) return false;
-        hex_seen++;
     }
-    return hex_seen == 32;
+    return true;
 }
 
 /* ISO 8601 duration, the practical core the iso8601 crate accepts:
@@ -783,7 +818,7 @@ bool sch_format_string_check(int format, const char *s, size_t len,
         /* the local shape: full-date T HH:MM:SS[.frac], no offset */
         if (len < 19 || !check_date(s, 10)) return false;
         if (s[10] != 'T' && s[10] != 't') return false;
-        size_t used = check_hms(s + 11, len - 11);
+        size_t used = check_hms(s + 11, len - 11, false, NULL, NULL, NULL);
         if (used == 0) return false;
         size_t pos = 11 + used;
         if (pos < len && s[pos] == '.') {
@@ -798,7 +833,7 @@ bool sch_format_string_check(int format, const char *s, size_t len,
         return pos == len;
     }
     case FMT_TIME: {
-        size_t used = check_hms(s, len);
+        size_t used = check_hms(s, len, false, NULL, NULL, NULL);
         if (used == 0) return false;
         size_t pos = used;
         if (pos < len && s[pos] == '.') {
@@ -808,13 +843,13 @@ bool sch_format_string_check(int format, const char *s, size_t len,
                 pos++;
                 frac++;
             }
-            if (frac != 6) return false; /* the crate's exact 6 digits */
+            if (frac == 0) return false; /* any precision >= 1 */
         }
         return len > pos && check_offset(s + pos, len - pos) == len - pos;
     }
     case FMT_TIME_LOCAL: {
         /* HH:MM:SS[.frac] with no offset (TOML's local time) */
-        size_t used = check_hms(s, len);
+        size_t used = check_hms(s, len, false, NULL, NULL, NULL);
         if (used == 0) return false;
         size_t pos = used;
         if (pos < len && s[pos] == '.') {

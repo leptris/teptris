@@ -546,6 +546,11 @@ static ra *ralternation(pctx *c);
 static ra *ratom(pctx *c) {
     if (c->pos >= c->n) return NULL;
     uint32_t ch = c->s[c->pos];
+    if (ch == '*' || ch == '+') {
+        /* a quantifier with nothing to repeat ('*a') */
+        pfail(c, "quantifier without a preceding atom");
+        return NULL;
+    }
     switch (ch) {
     case ')':
         return NULL; /* the enclosing group's terminator */
