@@ -1194,7 +1194,14 @@ TEST(SchemaFormats, RegexAndDurationAndTemplate)
     EXPECT_FALSE(valid(s.sch, "r = '[unclosed'\n"));
     EXPECT_TRUE(valid(s.sch, "d = 'P1Y2M3DT4H5M6S'\n"));
     EXPECT_TRUE(valid(s.sch, "d = 'P1W'\n"));
-    EXPECT_TRUE(valid(s.sch, "d = '-PT0.5S'\n"));
+    EXPECT_TRUE(valid(s.sch, "d = 'PT1M2S'\n"));
+    /* the unified suite's strict grammar: no sign, no fraction,
+     * no reorder, weeks sole-only (the old permissive pin
+     * '-PT0.5S' predated the 2026 reorganization) */
+    EXPECT_FALSE(valid(s.sch, "d = '-PT0.5S'\n"));
+    EXPECT_FALSE(valid(s.sch, "d = 'PT0.5S'\n"));
+    EXPECT_FALSE(valid(s.sch, "d = 'P1Y2W'\n"));
+    EXPECT_FALSE(valid(s.sch, "d = 'PT1H2S'\n"));
     EXPECT_FALSE(valid(s.sch, "d = '1 day'\n"));
     EXPECT_FALSE(valid(s.sch, "d = 'P'\n"));
     EXPECT_TRUE(valid(s.sch, "t = 'http://example.com/{id}'\n"));
