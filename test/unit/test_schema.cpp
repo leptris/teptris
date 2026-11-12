@@ -1128,7 +1128,12 @@ TEST(SchemaFormats, EmailAndHostname)
     EXPECT_FALSE(valid(s.sch, "h = '-a.b'\n"));
     EXPECT_FALSE(valid(s.sch, "h = 'a.b-'\n"));
     EXPECT_FALSE(valid(s.sch, "h = ''\n"));
-    EXPECT_TRUE(valid(s.sch, "h = 'a..b'\n")); /* empty labels pass (crate parity) */
+    EXPECT_FALSE(valid(s.sch, "h = 'a..b'\n")); /* empty labels: the
+        unified suite's hostname grammar is strict (the old crate-
+        parity pin predated the 2026 suite reorganization) */
+    EXPECT_FALSE(valid(s.sch, "h = '.'\n"));
+    EXPECT_FALSE(valid(s.sch, "h = '.example'\n"));
+    EXPECT_FALSE(valid(s.sch, "h = 'example.'\n"));
 }
 
 TEST(SchemaFormats, IpAddresses)
