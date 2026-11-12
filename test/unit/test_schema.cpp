@@ -1233,6 +1233,64 @@ TEST(SchemaFormats, RegexAndDurationAndTemplate)
     EXPECT_FALSE(valid(s.sch, "t = 'a b'\n")); /* a space is a bad literal */
 }
 
+TEST(SchemaFormats, IdnaHostnames)
+{
+    SchemaDoc h, i;
+    h.sch = compile_ok({"{\"properties\":{\"v\":{\"format\":\"hostname\"}}}"});
+    i.sch = compile_ok(
+        {"{\"properties\":{\"v\":{\"format\":\"idn-hostname\"}}}"});
+    ASSERT_NE(h.sch, nullptr);
+    ASSERT_NE(i.sch, nullptr);
+    /* the plain flavor stays ASCII-input-only, but ACE labels must
+     * decode to a valid, canonical, non-ASCII U-label */
+    EXPECT_TRUE(valid(h.sch, "v = 'xn--9n2bp8q.xn--9t4b11yi5a'\n"));
+    EXPECT_TRUE(valid(h.sch, "v = 'xn--NXASMQ6B'\n"));
+    EXPECT_FALSE(valid(h.sch, "v = '실례.테스트'\n"));
+    EXPECT_FALSE(valid(h.sch, "v = 'xn--X'\n"));
+    EXPECT_FALSE(valid(h.sch, "v = 'XN--aa---o47jg78q'\n"));
+    EXPECT_FALSE(valid(h.sch, "v = 'xn--hello-txk'\n"));
+    EXPECT_FALSE(valid(h.sch, "v = 'xn--5db1e'\n"));
+    EXPECT_FALSE(valid(h.sch, "v = 'xn---9uc'\n"));
+    EXPECT_FALSE(valid(h.sch, "v = 'xn--example-'\n"));
+    /* the idn flavor rides UTS #46 nontransitional processing into
+     * IDNA2008 validation: mapping, NFC, the four separators, the
+     * RFC 5892 context rules, RFC 5893 bidi and the length gates */
+    EXPECT_TRUE(valid(i.sch, "v = '실례.테스트'\n"));
+    EXPECT_TRUE(valid(i.sch, "v = 'a。b'\n"));
+    EXPECT_TRUE(valid(i.sch, "v = 'a．b'\n"));
+    EXPECT_TRUE(valid(i.sch, "v = 'a｡b'\n"));
+    EXPECT_TRUE(valid(i.sch, "v = 'ｘｎ--nxasmq6b'\n"));
+    EXPECT_TRUE(valid(i.sch, "v = '１２３'\n"));
+    EXPECT_TRUE(valid(i.sch, "v = 'café.com'\n"));
+    EXPECT_TRUE(valid(i.sch, "v = 'l·l'\n"));
+    EXPECT_TRUE(valid(i.sch, "v = 'α͵β'\n"));
+    EXPECT_TRUE(valid(i.sch, "v = 'א׳ב'\n"));
+    EXPECT_TRUE(valid(i.sch, "v = '・ぁ'\n"));
+    EXPECT_TRUE(valid(i.sch, "v = 'ب٠.ب۰'\n"));
+    EXPECT_TRUE(valid(i.sch, "v = '۰0'\n"));
+    EXPECT_TRUE(valid(i.sch, "v = 'क्\xe2\x80\x8dष'\n"));
+    EXPECT_TRUE(valid(i.sch, "v = 'بي\xe2\x80\x8cبي'\n"));
+    EXPECT_TRUE(valid(i.sch, "v = 'xn--NXASMQ6B'\n"));
+    EXPECT_FALSE(valid(i.sch, "v = '〮실례.테스트'\n"));
+    EXPECT_FALSE(valid(i.sch, "v = 'a·l'\n"));
+    EXPECT_FALSE(valid(i.sch, "v = 'α͵S'\n"));
+    EXPECT_FALSE(valid(i.sch, "v = 'A׳ב'\n"));
+    EXPECT_FALSE(valid(i.sch, "v = 'def・abc'\n"));
+    EXPECT_FALSE(valid(i.sch, "v = 'ب٠۰'\n"));
+    EXPECT_FALSE(valid(i.sch, "v = 'क\xe2\x80\x8dष'\n"));
+    EXPECT_FALSE(valid(i.sch, "v = '0a.א'\n"));
+    EXPECT_FALSE(valid(i.sch, "v = 'aא'\n"));
+    EXPECT_FALSE(valid(i.sch, "v = 'א0٠'\n"));
+    EXPECT_FALSE(valid(i.sch, "v = '-hello'\n"));
+    EXPECT_FALSE(valid(i.sch, "v = 'a..b'\n"));
+    EXPECT_FALSE(valid(i.sch, "v = '.example'\n"));
+    EXPECT_FALSE(valid(i.sch, "v = 'example。'\n"));
+    EXPECT_FALSE(valid(i.sch, "v = 'xn---9uc'\n"));
+    /* a U-label whose A-label form exceeds 63 octets */
+    EXPECT_FALSE(valid(i.sch,
+        "v = 'üüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüüü'\n"));
+}
+
 TEST(SchemaFormats, EmailFlavors)
 {
     SchemaDoc s;

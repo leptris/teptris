@@ -246,9 +246,16 @@ TOML-unrepresentable skips + 182 other-draft cases.
 The unified tree surfaced the old gate's blind spot: the classic
 per-draft view excluded the assert-flavored format coverage (the old
 `optional/` tree), so **172 format-precision cases** were never run.
-They are now the named SOTA work list, family by family (idn-hostname
-38, email 37, hostname 26 — punycode-label validity —, uri 16,
-uri-reference 10, duration 10, iri 8, iri-reference 7, idn-email 6,
-uri-template 4, time/date-time/relative-json-pointer 2 each, uuid /
-regex / ipv6 / vocabulary 1 each). The full inventory with
-expectations lives in the suite itself; the gate runs it verbatim.
+That work list is now **closed** (2026-11-12): the format battery
+graduated from crate-parity mirrors to real RFC/Unicode engines —
+RFC 5322 (email), RFC 6531 (idn-email), RFC 1035/5891 (hostname
+labels), RFC 3339 (duration, date, time, date-time), RFC 3986/3987
+(uri, uri-reference, iri, iri-reference), RFC 6570 (uri-template),
+RFC 4122 (uuid), RFC 6901 (json-pointer + relative), and full IDNA:
+UTS #46 nontransitional mapping (generated tables,
+`scripts/gen_idna_tables.py` → `idna_tables.h`), NFC, RFC 3492
+punycode (appendix C port), RFC 5892 context rules, RFC 5893 bidi —
+covering hostname and idn-hostname at zero divergence. The gate now
+reads **1789/1789** (182 other-draft + 23 external-schema cases
+classified out; the `$vocabulary` gate itself is unit-covered
+in-tree).
