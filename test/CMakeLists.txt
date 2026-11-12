@@ -34,6 +34,13 @@ add_executable(test_unit
 )
 target_link_libraries(test_unit PRIVATE teptris GTest::gtest_main)
 target_include_directories(test_unit PRIVATE ${CMAKE_SOURCE_DIR}/src)
+# the walk's depth cap is 512 ref hops; the 512-frame requirement must
+# physically fit the stack — Windows defaults to 1MB while every Unix
+# main thread gets 8MB, and MSVC/LTO frame economics sit right at that
+# edge (the UnguardedRefCycle test segfaulted instead of erroring)
+if(MSVC)
+    target_link_options(test_unit PRIVATE "/STACK:8388608")
+endif()
 # E6: the canonical-form property test reads the checked-in corpus
 target_compile_definitions(test_unit PRIVATE
     TEPTRIS_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
