@@ -69,7 +69,7 @@ jobs:
     # The official JSON Schema suite through tombi's exact harness
     # definition (required files, drafts 7 / 2019-09 / 2020-12, the
     # suite at tombi's pin). The gate: 1173/1173, schema-rejected 0.
-    name: json-schema suites (Definition A 1173 + sota unified-1679)
+    name: json-schema suites (Definition A 1173 + sota unified-1720)
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -93,11 +93,11 @@ jobs:
           git clone --depth 1 https://github.com/json-schema-org/JSON-Schema-Test-Suite /tmp/suite-sota
           git -C /tmp/suite-sota fetch --depth 1 origin 38dea932b02986f496345bf007108277777630bf
           git -C /tmp/suite-sota checkout --detach 38dea932b02986f496345bf007108277777630bf
-      - name: The sota draft-2020-12 gate must be 1679/1789
+      - name: The sota draft-2020-12 gate must be 1720/1789
         run: |
           SUITE_DIR=/tmp/suite-sota/validation/tests \
             python3 scripts/sota_suite_check.py | tee /tmp/sota.log
-          grep -q "passed 1679/1789" /tmp/sota.log
+          grep -q "passed 1720/1789" /tmp/sota.log
 
   tsan:
     # The board's TSAN line: the preset is in-tree and green locally;

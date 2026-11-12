@@ -47,11 +47,6 @@ static size_t cp_count(const char *s, size_t len) {
     return count;
 }
 
-static bool is_ascii_space(char c) {
-    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' ||
-           c == '\f';
-}
-
 /* ------------------------------------------------- date / time atoms -- */
 
 static bool leap_year(int y) {
@@ -417,43 +412,198 @@ static bool check_ipv6(const char *s, size_t len) {
 /* absolute URL, the practical shape of the url-crate parse: a scheme
  * (letter-first, alnum/+/-/.), a colon, and no control characters or
  * spaces anywhere */
-static bool check_uri(const char *s, size_t len) {
-    size_t i = 0;
-    if (len == 0 || !((s[0] >= 'a' && s[0] <= 'z') ||
-                      (s[0] >= 'A' && s[0] <= 'Z'))) {
-        return false;
+/* ---- RFC 3986 / RFC 3987 (iri) component parse — the unified
+ * suite runs the assert-flavored uri family against a real grammar:
+ * scheme [//authority] path ? query # fragment, pct = %HH only,
+ * reg-name/port/host-literal rules, bare IPv6 hosts rejected,
+ * non-ASCII only for iri. ---- */
+
+static size_t utf8_one(const char *s, size_t len, uint32_t *cp) {
+    unsigned char c = (unsigned char)s[0];
+    if (c < 0x80) { *cp = c; return 1; }
+    size_t n;
+    uint32_t v;
+    if ((c & 0xE0) == 0xC0) { n = 2; v = c & 0x1F; }
+    else if ((c & 0xF0) == 0xE0) { n = 3; v = c & 0x0F; }
+    else if ((c & 0xF8) == 0xF0) { n = 4; v = c & 0x07; }
+    else return 0;
+    if (len < n) return 0;
+    for (size_t k = 1; k < n; k++) {
+        unsigned char cc = (unsigned char)s[k];
+        if ((cc & 0xC0) != 0x80) return 0;
+        v = (v << 6) | (cc & 0x3F);
     }
-    for (i = 1; i < len; i++) {
-        char c = s[i];
-        if (c == ':') break;
-        if (!(is_ascii_alnum(c) || c == '+' || c == '-' || c == '.')) {
-            return false;
+    *cp = v;
+    return n;
+}
+
+static bool uri_subdelim(uint32_t cp) {
+    switch (cp) {
+    case '!': case '$': case '&': case '\'': case '(': case ')':
+    case '*': case '+': case ',': case ';': case '=': return true;
+    }
+    return false;
+}
+
+static bool uri_unreserved(uint32_t cp, bool unicode) {
+    if (cp < 0x80) return is_ascii_alnum((char)cp) || cp == '-' ||
+                            cp == '.' || cp == '_' || cp == '~';
+    return unicode; /* iri: any non-ASCII code point is an iunreserved */
+}
+
+/* pchar / '/' / '?' across [from, to): pct must be %HH, disallowed
+ * bytes and non-iri non-ASCII fail */
+static bool uri_span_ok(const char *s, size_t from, size_t to,
+                        bool unicode) {
+    size_t i = from;
+    while (i < to) {
+        if (s[i] == '%') {
+            if (i + 2 >= to || !is_hex(s[i + 1]) || !is_hex(s[i + 2]))
+                return false;
+            i += 3;
+            continue;
         }
-    }
-    if (i == len || i == 0) return false;
-    for (size_t k = 0; k < len; k++) {
-        unsigned char c = (unsigned char)s[k];
-        if (c < 0x21 || c == 0x7F) return false; /* controls + space */
+        if (s[i] == '/' || s[i] == '?' || s[i] == '#') { i++; continue; }
+        uint32_t cp;
+        size_t adv = utf8_one(s + i, to - i, &cp);
+        if (adv == 0) return false;
+        if (uri_unreserved(cp, unicode) || uri_subdelim(cp) ||
+            cp == ':' || cp == '@') {
+            i += adv;
+            continue;
+        }
+        return false;
     }
     return true;
 }
 
-/* URI-reference (and iri-reference): the crate's regex reduces to
- * "at most one '#', no backslash, no whitespace" - the optional
- * scheme part cannot make an otherwise-valid string fail because the
- * colon is legal in the reference body */
-static bool check_uri_reference(const char *s, size_t len) {
-    bool hash = false;
-    for (size_t i = 0; i < len; i++) {
-        char c = s[i];
-        if (c == '\\') return false;
-        if (is_ascii_space(c)) return false;
-        if (c == '#') {
-            if (hash) return false;
-            hash = true;
+static bool uri_reg_name(const char *s, size_t from, size_t to,
+                         bool unicode) {
+    size_t i = from;
+    while (i < to) {
+        if (s[i] == '%') {
+            if (i + 2 >= to || !is_hex(s[i + 1]) || !is_hex(s[i + 2]))
+                return false;
+            i += 3;
+            continue;
         }
+        uint32_t cp;
+        size_t adv = utf8_one(s + i, to - i, &cp);
+        if (adv == 0) return false;
+        if (!(uri_unreserved(cp, unicode) || uri_subdelim(cp))) return false;
+        i += adv;
     }
     return true;
+}
+
+static bool check_uri_generic(const char *s, size_t len,
+                              bool require_scheme, bool unicode) {
+    if (len == 0) return !require_scheme;
+    size_t i = 0;
+    bool has_scheme = false;
+    bool via_authority = false;
+    /* scheme = ALPHA *( ALPHA / DIGIT / '+' / '-' / '.' ) ':' */
+    if (((unsigned char)s[0] | 32) >= 'a' && ((unsigned char)s[0] | 32) <= 'z') {
+        size_t j = 1;
+        while (j < len) {
+            unsigned char c = (unsigned char)s[j];
+            if (c == ':') { has_scheme = true; i = j + 1; break; }
+            if (!(is_ascii_alnum(c) || c == '+' || c == '-' || c == '.'))
+                break;
+            j++;
+        }
+    }
+    if (!has_scheme) {
+        if (require_scheme) return false;
+        /* relative reference */
+        if (len >= 2 && s[0] == '/' && s[1] == '/') {
+            i = 2; /* authority below, shared path */
+            via_authority = true;
+        } else {
+            /* path-noscheme / path-absolute / empty */
+            size_t qend = len;
+            for (size_t k = 0; k < len; k++) {
+                if (s[k] == '?' || s[k] == '#') { qend = k; break; }
+            }
+            if (s[0] != '/') {
+                /* the first segment may not carry ':' unless it opens
+                 * with a dot segment ('./this:that' is fine) */
+                size_t seg = 0;
+                while (seg < qend && s[seg] != '/') seg++;
+                if (seg > 0 && s[0] != '.') {
+                    for (size_t k = 0; k < seg; k++) {
+                        if (s[k] == ':') return false;
+                    }
+                }
+            }
+            return uri_span_ok(s, 0, len, unicode);
+        }
+    }
+    /* authority: '//' after the scheme, or a leading '//' in a
+     * relative reference */
+    size_t rest_from = i;
+    if (via_authority || (i + 1 < len && s[i] == '/' && s[i + 1] == '/')) {
+        size_t auth = via_authority ? i : i + 2;
+        size_t aend = auth;
+        while (aend < len && s[aend] != '/' && s[aend] != '?' &&
+               s[aend] != '#') {
+            aend++;
+        }
+        size_t host_start = auth;
+        size_t nat = 0, at = (size_t)-1;
+        for (size_t k = auth; k < aend; k++) {
+            if (s[k] == '@') { nat++; at = k; }
+        }
+        if (nat > 1) return false; /* '@' cannot ride in userinfo */
+        if (nat == 1) {
+            if (!uri_span_ok(s, host_start, at, unicode)) return false;
+            host_start = at + 1;
+        }
+        if (host_start < aend && s[host_start] == '[') {
+            size_t close = host_start;
+            while (close < aend && s[close] != ']') close++;
+            if (close >= aend) return false;
+            if (!check_ipv6(s + host_start + 1, close - host_start - 1))
+                return false;
+            if (close + 1 < aend && s[close + 1] == ':') {
+                for (size_t k = close + 2; k < aend; k++) {
+                    if (!is_digit((unsigned char)s[k])) return false;
+                }
+            } else if (close + 1 != aend) {
+                return false;
+            }
+        } else {
+            /* reg-name up to an optional ':' port (digits only) */
+            size_t cend = aend;
+            for (size_t k = host_start; k < aend; k++) {
+                if (s[k] == ':') { cend = k; break; }
+                if (s[k] == '[' || s[k] == ']') return false;
+            }
+            if (!uri_reg_name(s, host_start, cend, unicode)) return false;
+            if (cend < aend) {
+                if (cend + 1 == aend) return false; /* 'joe.bloggs@'-class:
+                                                        an empty port is
+                                                        not a port */
+                for (size_t k = cend + 1; k < aend; k++) {
+                    if (!is_digit((unsigned char)s[k])) return false;
+                }
+            }
+        }
+        rest_from = aend;
+    }
+    return uri_span_ok(s, rest_from, len, unicode);
+}
+
+static bool check_uri(const char *s, size_t len) {
+    return check_uri_generic(s, len, true, false);
+}
+
+static bool check_uri_reference(const char *s, size_t len) {
+    return check_uri_generic(s, len, false, false);
+}
+
+static bool check_iri_like(const char *s, size_t len, bool require_scheme) {
+    return check_uri_generic(s, len, require_scheme, true);
 }
 
 /* JSON pointer (RFC 6901): empty, or '/'-led with '~' only in the
@@ -869,10 +1019,10 @@ bool sch_format_string_check(int format, const char *s, size_t len,
     case FMT_IDN_HOSTNAME: return check_hostname(s, len);
     case FMT_IPV4: return check_ipv4(s, len);
     case FMT_IPV6: return check_ipv6(s, len);
-    case FMT_URI:
-    case FMT_IRI: return check_uri(s, len);
-    case FMT_URI_REFERENCE:
-    case FMT_IRI_REFERENCE: return check_uri_reference(s, len);
+    case FMT_URI: return check_uri(s, len);
+    case FMT_IRI: return check_iri_like(s, len, true);
+    case FMT_URI_REFERENCE: return check_uri_reference(s, len);
+    case FMT_IRI_REFERENCE: return check_iri_like(s, len, false);
     case FMT_JSON_POINTER: return check_json_pointer(s, len);
     case FMT_RELATIVE_JSON_POINTER:
         return check_relative_json_pointer(s, len);
