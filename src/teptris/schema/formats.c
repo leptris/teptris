@@ -479,43 +479,72 @@ static bool check_uuid(const char *s, size_t len) {
  * an optional sign, P, then at least one nY/nM/nW/nD component and an
  * optional T-section of nH/nM/nS; a fraction is allowed on any unit */
 static bool check_duration(const char *s, size_t len) {
-    size_t i = 0;
-    if (len == 0) return false;
-    if (s[0] == '+' || s[0] == '-') i++;
-    if (i >= len || s[i] != 'P') return false;
-    i++;
-    bool any = false;
+    /* RFC 3339 duration, strict: P 1*DIGIT unit, canonical order
+     * Y -> M -> D -> T -> H -> M -> S. Within each section the FIRST
+     * component may be any of the section's units, every following
+     * one is exactly the next index (no skips, no duplicates:
+     * PT1H2S fails, PT1M2S passes); W is legal ONLY as the sole
+     * component; no sign, no fraction, ASCII digits. */
+    if (len < 2 || s[0] != 'P') return false;
+    size_t wpos = (size_t)-1;
+    for (size_t i = 1; i < len; i++) {
+        if (s[i] == 'W') wpos = i;
+    }
+    if (wpos != (size_t)-1) {
+        if (wpos != len - 1) return false;
+        for (size_t i = 1; i < len - 1; i++) {
+            if (!is_digit((unsigned char)s[i])) return false;
+        }
+        return len > 2;
+    }
+    int last = -1;         /* canonical index of the previous unit */
+    bool first_date = true;
+    bool first_time = true;
     bool in_time = false;
+    int components = 0;
+    size_t i = 1;
     while (i < len) {
-        if (!in_time && s[i] == 'T') {
+        if (s[i] == 'T') {
+            if (in_time) return false;
             in_time = true;
+            first_time = true;
             i++;
+            if (i >= len) return false; /* trailing T */
             continue;
         }
-        size_t start = i;
-        while (i < len && is_digit(s[i])) i++;
-        if (i == start) return false;
-        if (i < len && (s[i] == '.' || s[i] == ',')) {
-            i++;
-            size_t fs = i;
-            while (i < len && is_digit(s[i])) i++;
-            if (i == fs) return false;
-        }
+        if (!is_digit((unsigned char)s[i])) return false;
+        while (i < len && is_digit((unsigned char)s[i])) i++;
         if (i >= len) return false;
-        char unit = s[i];
-        i++;
-        if (unit == 'Y' || unit == 'W' || unit == 'D') {
-            if (in_time) return false;
-        } else if (unit == 'M') {
-            /* months before T, minutes after; both fine */
-        } else if (unit == 'H' || unit == 'S') {
-            if (!in_time) return false;
-        } else {
-            return false;
+        int idx;
+        switch (s[i]) {
+        case 'Y': idx = 0; break;
+        case 'M': idx = in_time ? 4 : 1; break;
+        case 'D': idx = 2; break;
+        case 'H': idx = 3; break;
+        case 'S': idx = 5; break;
+        default: return false;
         }
-        any = true;
+        if (idx == 2 && in_time) return false;  /* no date units in the
+                                                   time section */
+        if ((idx == 3 || idx == 5) && !in_time) return false;
+        if (in_time) {
+            if (first_time) {
+                first_time = false;
+            } else if (idx != last + 1) {
+                return false;
+            }
+        } else {
+            if (first_date) {
+                first_date = false;
+            } else if (idx != last + 1) {
+                return false;
+            }
+        }
+        last = idx;
+        components++;
+        i++;
     }
-    return any;
+    return components > 0;
 }
 
 /* ----------------------------------------------------- uri-template -- */
