@@ -1544,6 +1544,13 @@ static bool check_hostname(const char *s, size_t len) {
 static bool check_idn_hostname(const char *s, size_t len) {
     if (len == 0 || len > 253) return false;
     unsigned cps[IDNA_DOM_CAP];
+    /* scratch shared by both label passes: one declaration keeps the
+     * optimizer's object-size analysis honest (GCC 15 modeled the
+     * inlined punycode store as writing into a size-0 object when
+     * each pass carried its own in-loop copies) */
+    unsigned dec[128];
+    size_t dn;
+    char body[128];
     size_t n = idna_ut46_map(s, len, cps);
     if (n == SIZE_MAX) return false;
     size_t octets = 0;
@@ -1562,9 +1569,6 @@ static bool check_idn_hostname(const char *s, size_t len) {
         if (ln == 0) return false;
         if (ln >= 4 && lp[0] == 'x' && lp[1] == 'n' && lp[2] == '-' &&
             lp[3] == '-') {
-            unsigned dec[128];
-            size_t dn;
-            char body[128];
             size_t bn = 0;
             for (size_t k = 4; k < ln; k++) {
                 if (lp[k] >= 0x80 || bn >= sizeof body) return false;
@@ -1584,9 +1588,6 @@ static bool check_idn_hostname(const char *s, size_t len) {
         const unsigned *lp = cps + ls;
         if (ln >= 4 && lp[0] == 'x' && lp[1] == 'n' && lp[2] == '-' &&
             lp[3] == '-') {
-            unsigned dec[128];
-            size_t dn;
-            char body[128];
             size_t bn = 0;
             for (size_t k = 4; k < ln; k++) {
                 if (lp[k] >= 0x80 || bn >= sizeof body) return false;
