@@ -1,0 +1,160 @@
+name: release
+
+# Releases are the automated workflow's job, never a manual tag
+# (teptris#210, audit finding 3). Phase 1 (workflow_dispatch with
+# next_version) bumps the version files and the CHANGELOG section,
+# and opens the release PR. Phase 2 fires when that PR merges: tag +
+# GitHub Release with notes extracted from CHANGELOG.md. The exact
+# version always comes from the dispatching human — the workflow
+# never infers one.
+#
+# Gate rule (the stale-engine lesson): phase 2 refuses to tag unless
+# the checked-out tree's version files agree with the release
+# version — a release PR built against a stale tree must fail loudly,
+# not ship a version the binaries don't carry.
+
+on:
+  workflow_dispatch:
+    inputs:
+      next_version:
+        description: "Exact version to release (e.g. 0.3.32)"
+        required: false
+        type: string
+      republish_version:
+        description: "Re-publish an already-tagged version (GitHub Release only; skips the cut)"
+        required: false
+        type: string
+  pull_request:
+    branches: [main]
+    types: [closed]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  cut:
+    if: github.event_name == 'workflow_dispatch' && inputs.next_version != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+
+      - name: Validate version shape
+        run: |
+          echo "${{ inputs.next_version }}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || {
+            echo "not X.Y.Z" >&2; exit 1;
+          }
+
+      - name: Bump version files + rename the CHANGELOG section
+        run: bash scripts/bump-version.sh "${{ inputs.next_version }}"
+
+      - name: Self-check (the tree now carries the release version)
+        run: |
+          V="${{ inputs.next_version }}"
+          grep -q "TEPTRIS_VERSION_STRING \"${V}\"" src/include/teptris/version.h || {
+            echo "version.h does not carry ${V}" >&2; exit 1;
+          }
+          grep -q "    VERSION ${V}$" CMakeLists.txt || {
+            echo "CMakeLists.txt does not carry ${V}" >&2; exit 1;
+          }
+
+      - name: Create the release PR
+        run: |
+          V="${{ inputs.next_version }}"
+          git config user.name "leptris-ci"
+          git config user.email "leptris-ci@users.noreply.github.com"
+          git checkout -b "release/v$V"
+          git add src/include/teptris/version.h CMakeLists.txt CHANGELOG.md
+          git commit -m "release: v$V"
+          git push origin "release/v$V"
+          gh pr create --title "release: v$V" \
+            --body "Automated release branch for v$V. On merge, the workflow tags and publishes the GitHub Release with notes from CHANGELOG.md." \
+            --base main
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+  publish:
+    if: >-
+      (github.event_name == 'pull_request' && github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/v')) ||
+      (github.event_name == 'workflow_dispatch' && inputs.republish_version != '')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7
+        with:
+          ref: main
+          # the merge commit carries the bumped tree
+          fetch-depth: 0
+
+      - name: Resolve the release version
+        env:
+          HEADREF: ${{ github.event.pull_request.head.ref }}
+          REPUBLISH: ${{ inputs.republish_version }}
+        run: |
+          V="$REPUBLISH"
+          if [ -z "$V" ]; then
+            V="${HEADREF#release/v}"
+          fi
+          echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || { echo "bad version: $V"; exit 1; }
+          echo "V=$V" >> "$GITHUB_ENV"
+
+      - name: The stale-tree gate (the merged tree must carry the version)
+        run: |
+          grep -q "TEPTRIS_VERSION_STRING \"${V}\"" src/include/teptris/version.h || {
+            echo "::error::the merged tree's version.h does not carry ${V} - refusing to tag a tree the binaries do not match" >&2
+            exit 1
+          }
+
+      - name: Extract the release notes from CHANGELOG.md
+        run: |
+          SECTION=$(awk -v v="$V" '
+            index($0, "## [" v "]") == 1 { flag = 1; next }
+            flag && /^## /               { exit }
+            flag                         { print }
+          ' CHANGELOG.md)
+          # strip the leading blank lines; what remains must say
+          # something — a silent nil/drop of the notes section is the
+          # failure mode this gate exists for
+          SECTION=$(printf '%s' "$SECTION" | sed '/./,$!d')
+          if [ -z "$SECTION" ]; then
+            echo "::error::CHANGELOG.md has no content under ## [$V] - refusing to ship an undocumented release" >&2
+            exit 1
+          fi
+          # a body file, never an inline heredoc: the notes text is
+          # caller-controlled content and goes to the API untouched
+          printf '%s\n' "$SECTION" > /tmp/release-notes.md
+          head -5 /tmp/release-notes.md
+
+      - name: Tag and publish the GitHub Release
+        run: |
+          if git ls-remote --exit-code --tags origin "v$V" >/dev/null; then
+            echo "tag v$V exists (republish mode): updating the release notes only"
+            gh release view "v$V" >/dev/null 2>&1 || gh release create "v$V" --title "v$V" --verify-tag
+            gh release edit "v$V" --notes-file /tmp/release-notes.md
+          else
+            git config user.name "leptris-ci"
+            git config user.email "leptris-ci@users.noreply.github.com"
+            git tag -a "v$V" -m "v$V"
+            git push origin "v$V"
+            gh release create "v$V" --title "v$V" --verify-tag --notes-file /tmp/release-notes.md
+          fi
+        env:
+          GH_TOKEN: ${{ github.token }}
+
+      - name: Report the binding wave state
+        run: |
+          # informational: which binding tags already correspond to
+          # this engine version (the ALL-RUNTIMES wave follows the
+          # engine cut; nothing here pushes)
+          for repo in teptris-ruby teptris-py teptris-rs teptris-ts; do
+            BEST=$(git ls-remote --tags "https://github.com/leptris/$repo" 2>/dev/null \
+              | grep -oE "refs/tags/v${V//./\.}\.[0-9]+$|refs/tags/v${V}$" | sed 's#refs/tags/##' | sort -V | tail -1 || true)
+            if [ -n "$BEST" ]; then
+              echo "$repo: $BEST"
+            else
+              echo "$repo: no v${V}.* tag yet — the binding wave follows"
+            fi
+          done
