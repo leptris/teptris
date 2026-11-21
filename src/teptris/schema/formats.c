@@ -1455,6 +1455,19 @@ static bool idna_label_chars_ok(const unsigned *cp, size_t n) {
 /* decode an A-label body (past xn--) and gate the U-label: chars,
  * context rules, the 3rd/4th '--' reservation, and the canonical
  * re-encode; answers the decoded code points for the bidi pass */
+#if defined(__GNUC__) && !defined(__clang__)
+/* GCC 15 flags the CALL SITES with -Wstringop-overflow ("writing 32
+ * bytes into a region of size 0") via the IPA store summary: the
+ * inlined pc_decode memmove writes through the size-less output
+ * pointer and the analysis models it as a size-0 object. The stores
+ * are provably bounded (every write is gated by out >= max_out,
+ * max_out = the caller's 128-element array), and this warning class
+ * is emitted from the optimizer stage AFTER the diagnostic-decision
+ * point, so #pragma GCC diagnostic cannot silence it. noipa breaks
+ * the interprocedural summary that carries the bogus model into the
+ * callers; argument errors still type-check at every call. */
+__attribute__((noipa))
+#endif
 static bool idna_alabel_decode(const char *body, size_t blen,
                                unsigned *dec, size_t *dn) {
     size_t cap = 128;
@@ -1541,19 +1554,6 @@ static bool check_hostname(const char *s, size_t len) {
 }
 
 #define IDNA_DOM_CAP 1100
-
-/* GCC 15's interprocedural -Wstringop-overflow flags the
- * idna_alabel_decode call sites in this function: through the
- * inlined pc_decode memmove it models the output pointer (a
- * size-less parameter) as a size-0 object. Every store is bounded
- * by max_out = this function's 128-element array, enforced by the
- * out >= max_out returns before each write - the warning is a
- * false positive. The suppression is GCC-only and scoped to this
- * function so clang (and future GCC) keep auditing the path. */
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wstringop-overflow"
-#endif
 static bool check_idn_hostname(const char *s, size_t len) {
     if (len == 0 || len > 253) return false;
     unsigned cps[IDNA_DOM_CAP];
@@ -1616,9 +1616,6 @@ static bool check_idn_hostname(const char *s, size_t len) {
     }
     return true;
 }
-#if defined(__GNUC__) && !defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
 
 /* ----------------------------------------------------------- entry -- */
 
