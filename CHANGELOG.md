@@ -4,6 +4,8 @@ All notable changes to libteptris. The release workflow renames the
 `[Unreleased]` section to the version being cut — write entries here
 as they land on main.
 
+## [0.3.32] - 2026-11-21
+
 ## [Unreleased]
 
 ## [0.3.31] - 2026-11-13
