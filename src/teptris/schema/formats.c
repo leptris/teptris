@@ -1541,6 +1541,19 @@ static bool check_hostname(const char *s, size_t len) {
 }
 
 #define IDNA_DOM_CAP 1100
+
+/* GCC 15's interprocedural -Wstringop-overflow flags the
+ * idna_alabel_decode call sites in this function: through the
+ * inlined pc_decode memmove it models the output pointer (a
+ * size-less parameter) as a size-0 object. Every store is bounded
+ * by max_out = this function's 128-element array, enforced by the
+ * out >= max_out returns before each write - the warning is a
+ * false positive. The suppression is GCC-only and scoped to this
+ * function so clang (and future GCC) keep auditing the path. */
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wstringop-overflow"
+#endif
 static bool check_idn_hostname(const char *s, size_t len) {
     if (len == 0 || len > 253) return false;
     unsigned cps[IDNA_DOM_CAP];
@@ -1603,6 +1616,9 @@ static bool check_idn_hostname(const char *s, size_t len) {
     }
     return true;
 }
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
 
 /* ----------------------------------------------------------- entry -- */
 
