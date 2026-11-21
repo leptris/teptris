@@ -31,10 +31,22 @@ sed -i.bak "s/TEPTRIS_VERSION_STRING \"${CURRENT}\"/TEPTRIS_VERSION_STRING \"${V
 sed -i.bak "s/^    VERSION ${CURRENT}\$/    VERSION ${V}/" "$CMAKE"
 rm -f "$HEADER.bak" "$CMAKE.bak"
 
+# the part macros are public installed surface (cmake --install
+# ships this header) - they move with the string
+IFS=. read -r VMAJ VMIN VPAT <<< "$V"
+sed -i.bak "s/^#define TEPTRIS_VERSION_MAJOR [0-9]*$/#define TEPTRIS_VERSION_MAJOR $VMAJ/" "$HEADER"
+sed -i.bak "s/^#define TEPTRIS_VERSION_MINOR [0-9]*$/#define TEPTRIS_VERSION_MINOR $VMIN/" "$HEADER"
+sed -i.bak "s/^#define TEPTRIS_VERSION_PATCH [0-9]*$/#define TEPTRIS_VERSION_PATCH $VPAT/" "$HEADER"
+rm -f "$HEADER.bak"
+
 NEW=$(grep -oE 'TEPTRIS_VERSION_STRING "[0-9.]+"' "$HEADER" | grep -oE '[0-9.]+' | head -1)
 CMAKE_V=$(grep -oE '    VERSION [0-9.]+' "$CMAKE" | head -1 | grep -oE '[0-9.]+')
 [ "$NEW" = "$V" ] || { echo "version.h bump failed: got '$NEW', wanted '$V'" >&2; exit 1; }
 [ "$CMAKE_V" = "$V" ] || { echo "CMakeLists.txt VERSION ($CMAKE_V) disagrees with $V — align them first" >&2; exit 1; }
+grep -q "^#define TEPTRIS_VERSION_PATCH $VPAT$" "$HEADER" || {
+  echo "TEPTRIS_VERSION_PATCH bump failed" >&2
+  exit 1
+}
 
 if [ -f "$CHANGELOG" ]; then
   grep -q '^## \[Unreleased\]' "$CHANGELOG" || {
