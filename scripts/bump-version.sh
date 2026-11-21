@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Bump the engine's version files in one shot and seed the CHANGELOG
+# entry. The exact version always comes from the caller (the release
+# workflow's next_version input) — never inferred here.
+#
+#   scripts/bump-version.sh 0.3.32
+#
+# Files bumped:
+#   src/include/teptris/version.h  (TEPTRIS_VERSION_STRING — the SSOT)
+#   CMakeLists.txt                 (project VERSION — must agree)
+#   CHANGELOG.md                   (seeds the release section header
+#                                   under ## [Unreleased])
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+V="${1:-}"
+echo "$V" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || {
+  echo "usage: bump-version.sh X.Y.Z (got '${V}')" >&2
+  exit 1
+}
+
+HEADER=src/include/teptris/version.h
+CMAKE=CMakeLists.txt
+CHANGELOG=CHANGELOG.md
+
+CURRENT=$(grep -oE 'TEPTRIS_VERSION_STRING "[0-9.]+"' "$HEADER" | grep -oE '[0-9.]+' | head -1)
+[ -n "$CURRENT" ] || { echo "cannot read the current version from $HEADER" >&2; exit 1; }
+[ "$V" != "$CURRENT" ] || { echo "version $V is already current" >&2; exit 1; }
+
+sed -i.bak "s/TEPTRIS_VERSION_STRING \"${CURRENT}\"/TEPTRIS_VERSION_STRING \"${V}\"/" "$HEADER"
+sed -i.bak "s/^    VERSION ${CURRENT}\$/    VERSION ${V}/" "$CMAKE"
+rm -f "$HEADER.bak" "$CMAKE.bak"
+
+NEW=$(grep -oE 'TEPTRIS_VERSION_STRING "[0-9.]+"' "$HEADER" | grep -oE '[0-9.]+' | head -1)
+CMAKE_V=$(grep -oE '    VERSION [0-9.]+' "$CMAKE" | head -1 | grep -oE '[0-9.]+')
+[ "$NEW" = "$V" ] || { echo "version.h bump failed: got '$NEW', wanted '$V'" >&2; exit 1; }
+[ "$CMAKE_V" = "$V" ] || { echo "CMakeLists.txt VERSION ($CMAKE_V) disagrees with $V — align them first" >&2; exit 1; }
+
+if [ -f "$CHANGELOG" ]; then
+  grep -q '^## \[Unreleased\]' "$CHANGELOG" || {
+    echo "CHANGELOG.md has no '## [Unreleased]' section — add one before releasing" >&2
+    exit 1
+  }
+  TODAY=$(date +%Y-%m-%d)
+  # BSD sed's empty-pattern reuse silently no-ops here — awk is
+  # portable, and the post-check below refuses to let a silent
+  # rename ship an undocumented release
+  awk -v v="$V" -v today="$TODAY" '
+    /^## \[Unreleased\]$/ && !done {
+      print "## [" v "] - " today
+      print ""
+      print "## [Unreleased]"
+      done = 1
+      next
+    }
+    { print }
+  ' "$CHANGELOG" > "$CHANGELOG.new" && mv "$CHANGELOG.new" "$CHANGELOG"
+  grep -q "^## \[${V}\] - ${TODAY}" "$CHANGELOG" || {
+    echo "CHANGELOG rename failed silently — refusing to continue" >&2
+    exit 1
+  }
+else
+  echo "CHANGELOG.md missing — create it with an Unreleased section first" >&2
+  exit 1
+fi
+
+echo "bumped ${CURRENT} -> ${V} (version.h, CMakeLists.txt) and renamed the CHANGELOG section"
