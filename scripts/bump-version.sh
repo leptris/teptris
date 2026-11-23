@@ -6,10 +6,12 @@
 #   scripts/bump-version.sh 0.3.32
 #
 # Files bumped:
-#   src/include/teptris/version.h  (TEPTRIS_VERSION_STRING — the SSOT)
+#   src/include/teptris/version.h  (TEPTRIS_VERSION_STRING — the SSOT
+#                                  plus the public part macros)
 #   CMakeLists.txt                 (project VERSION — must agree)
-#   CHANGELOG.md                   (seeds the release section header
-#                                   under ## [Unreleased])
+#   CHANGELOG.md                   (the release section: renamed from
+#                                  ## [Unreleased], or MERGED into an
+#                                  existing ## [V] section)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -27,6 +29,29 @@ CURRENT=$(grep -oE 'TEPTRIS_VERSION_STRING "[0-9.]+"' "$HEADER" | grep -oE '[0-9
 [ -n "$CURRENT" ] || { echo "cannot read the current version from $HEADER" >&2; exit 1; }
 [ "$V" != "$CURRENT" ] || { echo "version $V is already current" >&2; exit 1; }
 
+TODAY=$(date +%Y-%m-%d)
+COLLISION=0
+if [ -f "$CHANGELOG" ]; then
+  # collision-aware (the 0.3.32/0.3.33 rehearsals): when a section
+  # for V already exists (content pre-added under the final name),
+  # the rename must MERGE - drop only the empty Unreleased header -
+  # instead of inserting a duplicate empty section the notes gate
+  # would trip over. Content must live SOMEWHERE before the cut;
+  # both shapes land in one populated ## [V] section.
+  if grep -q "^## \\[${V}\\]" "$CHANGELOG"; then
+    COLLISION=1
+  else
+    grep -q '^## \[Unreleased\]' "$CHANGELOG" || {
+      echo "CHANGELOG.md has no '## [Unreleased]' section — add one before releasing" >&2
+      exit 1
+    }
+  fi
+else
+  echo "CHANGELOG.md missing — create it with an Unreleased section first" >&2
+  exit 1
+fi
+
+# ---- version mutations (all validation has passed) ----
 sed -i.bak "s/TEPTRIS_VERSION_STRING \"${CURRENT}\"/TEPTRIS_VERSION_STRING \"${V}\"/" "$HEADER"
 sed -i.bak "s/^    VERSION ${CURRENT}\$/    VERSION ${V}/" "$CMAKE"
 rm -f "$HEADER.bak" "$CMAKE.bak"
@@ -48,15 +73,17 @@ grep -q "^#define TEPTRIS_VERSION_PATCH $VPAT$" "$HEADER" || {
   exit 1
 }
 
-if [ -f "$CHANGELOG" ]; then
-  grep -q '^## \[Unreleased\]' "$CHANGELOG" || {
-    echo "CHANGELOG.md has no '## [Unreleased]' section — add one before releasing" >&2
+# ---- the changelog mutation ----
+if [ "$COLLISION" = "1" ]; then
+  awk '/^## \[Unreleased\]$/ && !done { done = 1; next } { print }' \
+    "$CHANGELOG" > "$CHANGELOG.new"
+  mv "$CHANGELOG.new" "$CHANGELOG"
+  grep -q "^## \\[${V}\\] - " "$CHANGELOG" || {
+    echo "existing ## [${V}] section carries no date line - give it one" >&2
     exit 1
   }
-  TODAY=$(date +%Y-%m-%d)
-  # BSD sed's empty-pattern reuse silently no-ops here — awk is
-  # portable, and the post-check below refuses to let a silent
-  # rename ship an undocumented release
+  echo "merged into the existing ## [${V}] section"
+else
   awk -v v="$V" -v today="$TODAY" '
     /^## \[Unreleased\]$/ && !done {
       print "## [" v "] - " today
@@ -67,13 +94,10 @@ if [ -f "$CHANGELOG" ]; then
     }
     { print }
   ' "$CHANGELOG" > "$CHANGELOG.new" && mv "$CHANGELOG.new" "$CHANGELOG"
-  grep -q "^## \[${V}\] - ${TODAY}" "$CHANGELOG" || {
+  grep -q "^## \\[${V}\\] - ${TODAY}" "$CHANGELOG" || {
     echo "CHANGELOG rename failed silently — refusing to continue" >&2
     exit 1
   }
-else
-  echo "CHANGELOG.md missing — create it with an Unreleased section first" >&2
-  exit 1
 fi
 
-echo "bumped ${CURRENT} -> ${V} (version.h, CMakeLists.txt) and renamed the CHANGELOG section"
+echo "bumped ${CURRENT} -> ${V} (version.h, CMakeLists.txt; CHANGELOG ${COLLISION:+merged}${COLLISION:-renamed})"
