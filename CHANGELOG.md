@@ -6,6 +6,15 @@ as they land on main.
 
 ## [Unreleased]
 
+## [0.3.33] - 2026-11-23
+
+### Fixed
+- The `noipa` attribute on the IDNA A-label decoder is removed: it
+  never silenced the GCC false positive and broke LTO archive links
+  on some vintages ("final link failed: bad value" at the consumer
+  link). The release lane's exact-string filter carries the
+  suppression; the decoder's stores remain provably bounded.
+
 ## [0.3.32] - 2026-11-23
 
 ### Fixed
