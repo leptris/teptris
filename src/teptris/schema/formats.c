@@ -1454,20 +1454,12 @@ static bool idna_label_chars_ok(const unsigned *cp, size_t n) {
 
 /* decode an A-label body (past xn--) and gate the U-label: chars,
  * context rules, the 3rd/4th '--' reservation, and the canonical
- * re-encode; answers the decoded code points for the bidi pass */
-#if defined(__GNUC__) && !defined(__clang__)
-/* GCC 15 flags the CALL SITES with -Wstringop-overflow ("writing 32
- * bytes into a region of size 0") via the IPA store summary: the
- * inlined pc_decode memmove writes through the size-less output
- * pointer and the analysis models it as a size-0 object. The stores
- * are provably bounded (every write is gated by out >= max_out,
- * max_out = the caller's 128-element array), and this warning class
- * is emitted from the optimizer stage AFTER the diagnostic-decision
- * point, so #pragma GCC diagnostic cannot silence it. noipa breaks
- * the interprocedural summary that carries the bogus model into the
- * callers; argument errors still type-check at every call. */
-__attribute__((noipa))
-#endif
+ * re-encode; answers the decoded code points for the bidi pass.
+ * GCC 15 flags the call sites with a pragma-immune
+ * -Wstringop-overflow false positive (noipa was tried and dropped:
+ * it broke LTO archive links on some vintages with "final link
+ * failed: bad value"); the release lane filters the exact line,
+ * dated. The stores are provably bounded by the max_out gates. */
 static bool idna_alabel_decode(const char *body, size_t blen,
                                unsigned *dec, size_t *dn) {
     size_t cap = 128;
