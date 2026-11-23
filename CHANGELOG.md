@@ -6,10 +6,6 @@ as they land on main.
 
 ## [0.3.33] - 2026-11-23
 
-## [Unreleased]
-
-## [0.3.33] - 2026-11-23
-
 ### Fixed
 - The `noipa` attribute on the IDNA A-label decoder is removed: it
   never silenced the GCC false positive and broke LTO archive links
