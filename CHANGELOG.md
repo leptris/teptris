@@ -6,6 +6,23 @@ as they land on main.
 
 ## [Unreleased]
 
+## [0.3.32] - 2026-11-23
+
+### Fixed
+- The IDNA A-label decoder rides `noipa` under GCC 15: the refreshed
+  ubuntu image's optimizer models the punycode store (provably
+  bounded by the max_out gates) as a size-0 write and flags it
+  `-Wstringop-overflow` from a stage the diagnostic pragma cannot
+  reach; the scratch pair also hoists to one declaration per domain
+  walk. The warning-class false positive filtered exactly, in the
+  release lane, with the drop condition dated.
+
+### Changed
+- The release automation lands: the two-phase flow (bump + CHANGELOG
+  section rename -> release PR -> tag + notes extracted from the
+  section), the engine-lockstep tooling, and the version part-macros
+  move with the string again.
+
 ## [0.3.31] - 2026-11-13
 
 ### Fixed
